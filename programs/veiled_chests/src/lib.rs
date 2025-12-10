@@ -1,7 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use arcium_anchor::prelude::*;
-use arcium_client::idl::arcium::types::CallbackAccount;
+use arcium_client::idl::arcium::types::{CallbackAccount, CircuitSource, OffChainCircuitSource};
+use arcium_macros::circuit_hash;
 
 const COMP_DEF_OFFSET_PLAY_CHEST_GAME: u32 = comp_def_offset("play_chest_game");
 
@@ -17,7 +18,14 @@ pub mod veiled_chests {
 
     /// Initialize the computation definition for play_chest_game
     pub fn init_play_chest_game_comp_def(ctx: Context<InitPlayChestGameCompDef>) -> Result<()> {
-        init_comp_def(ctx.accounts, None, None)?;
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: "https://raw.githubusercontent.com/0xPhantasm/Alloy/main/build/play_chest_game.arcis".to_string(),
+                hash: circuit_hash!("play_chest_game"),
+            })),
+            None,
+        )?;
         Ok(())
     }
 
