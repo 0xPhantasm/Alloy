@@ -1,7 +1,13 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { VeiledChests } from "../target/types/veiled_chests";
-import { Connection, Keypair } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import {
+  getMXEAccAddress,
+  getCompDefAccAddress,
+  getCompDefAccOffset,
+  getArciumProgramId,
+} from "@arcium-hq/client";
 import fs from "fs";
 import path from "path";
 
@@ -36,14 +42,26 @@ async function main() {
   );
   const program = new Program(idl, provider) as Program<VeiledChests>;
 
+  // Derive Arcium accounts
+  const mxeAccount = getMXEAccAddress(programId);
+  const compDefOffset = Buffer.from(getCompDefAccOffset("play_chest_game")).readUInt32LE();
+  const compDefAccount = getCompDefAccAddress(programId, compDefOffset);
+  const arciumProgramId = getArciumProgramId();
+
   console.log("Initializing computation definition for play_chest_game...");
   console.log("Using payer:", payer.publicKey.toBase58());
+  console.log("MXE Account:", mxeAccount.toBase58());
+  console.log("Comp Def Account:", compDefAccount.toBase58());
+  console.log("Arcium Program:", arciumProgramId.toBase58());
 
   try {
     const tx = await program.methods
       .initPlayChestGameCompDef()
-      .accounts({
+      .accountsPartial({
         payer: payer.publicKey,
+        mxeAccount: mxeAccount,
+        compDefAccount: compDefAccount,
+        arciumProgram: arciumProgramId,
       })
       .rpc({ skipPreflight: true });
 
