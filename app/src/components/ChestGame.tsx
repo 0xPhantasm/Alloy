@@ -6,29 +6,14 @@ import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { Program, AnchorProvider, BN } from "@coral-xyz/anchor";
 import { x25519 } from "@noble/curves/ed25519";
-import {
-  RescueCipher,
-  getClusterAccAddress,
-  getMXEAccAddress,
-  getMempoolAccAddress,
-  getExecutingPoolAccAddress,
-  getComputationAccAddress,
-  getCompDefAccAddress,
-  getCompDefAccOffset,
-  getMXEPublicKey,
-  awaitComputationFinalization,
-  getArciumProgramId,
-  getFeePoolAccAddress,
-  getClockAccAddress,
-} from "@arcium-hq/client";
 import IDL from "@/idl/veiled_chests.json";
 
 // Constants - Program ID derived from IDL
 const PROGRAM_ID = new PublicKey(IDL.address);
-const CLUSTER_OFFSET = parseInt(process.env.NEXT_PUBLIC_ARCIUM_CLUSTER_OFFSET || "123");
+const CLUSTER_OFFSET = parseInt(process.env.NEXT_PUBLIC_ARCIUM_CLUSTER_OFFSET || "456");
 const TREASURY_SEED = Buffer.from("treasury");
 const GAME_SEED = Buffer.from("game");
-const SIGN_PDA_SEED = Buffer.from("sign");
+const SIGN_PDA_SEED = Buffer.from("ArciumSignerAccount");
 
 // Bet options in SOL
 const BET_OPTIONS = [0.1, 0.3, 0.5, 0.7, 1.0];
@@ -80,12 +65,33 @@ export const ChestGame: FC = () => {
     setTxSignature(null);
 
     try {
+      // Dynamically import arcium client to avoid SSR issues
+      const arcium = await import("@arcium-hq/client");
+      const {
+        RescueCipher,
+        getClusterAccAddress,
+        getMXEAccAddress,
+        getMempoolAccAddress,
+        getExecutingPoolAccAddress,
+        getComputationAccAddress,
+        getCompDefAccAddress,
+        getCompDefAccOffset,
+        getMXEPublicKey,
+        awaitComputationFinalization,
+        getArciumProgramId,
+        getFeePoolAccAddress,
+        getClockAccAddress,
+        deserializeLE,
+      } = arcium;
+
       const provider = getProvider();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const program = new Program(IDL as any, provider);
 
       // Get MXE public key for encryption (may take time on devnet as keygen needs to complete)
+      console.log("Fetching MXE public key for program:", PROGRAM_ID.toBase58());
       let mxePubkey = await getMXEPublicKey(provider, PROGRAM_ID);
+      console.log("MXE public key fetched:", mxePubkey ? Array.from(mxePubkey) : "null");
       if (!mxePubkey) {
         throw new Error(
           "MXE public key not available yet. The Arcium network is still processing keygen for this MXE. " +
@@ -103,9 +109,13 @@ export const ChestGame: FC = () => {
       
       // Generate nonce and encrypt
       const nonce = crypto.getRandomValues(new Uint8Array(16));
-      const encryptedChoice = cipher.encrypt([BigInt(selectedChest)], nonce);
+      const ciphertext = cipher.encrypt([BigInt(selectedChest)], nonce);
+      
+      // The ciphertext[0] is already in the correct format for [u8; 32]
+      // Use Array.from() as shown in Arcium examples
+      console.log("Encrypted choice:", ciphertext[0]);
 
-      // Generate computation offset
+      // Generate computation offset (use random bytes like the examples)
       const computationOffset = new BN(Date.now());
 
       // Derive PDAs
@@ -126,16 +136,16 @@ export const ChestGame: FC = () => {
       const mxeAccount = getMXEAccAddress(PROGRAM_ID);
 
       // Deserialize nonce to BigInt for the transaction
-      const { deserializeLE } = await import("@arcium-hq/client");
       const nonceValue = deserializeLE(nonce);
+      console.log("Nonce value:", nonceValue.toString());
 
       // Build transaction
-      const tx = await program.methods
+      const txBuilder = program.methods
         .playChestGame(
           computationOffset,
           numChests,
           new BN(betAmount * LAMPORTS_PER_SOL),
-          encryptedChoice[0] as any,  // First encrypted value (player choice)
+          Array.from(ciphertext[0]) as any,  // Encrypted player choice
           Array.from(clientPubkey) as any,
           new BN(nonceValue.toString())
         )
@@ -157,8 +167,32 @@ export const ChestGame: FC = () => {
           clockAccount: getClockAccAddress(),
           systemProgram: SystemProgram.programId,
           arciumProgram: getArciumProgramId(),
-        })
-        .rpc({ skipPreflight: true, commitment: "confirmed" });
+        });
+      
+      // Log the transaction for debugging
+      const txInstr = await txBuilder.instruction();
+      console.log("Transaction instruction keys:", txInstr.keys.map(k => ({ pubkey: k.pubkey.toBase58(), isSigner: k.isSigner, isWritable: k.isWritable })));
+      console.log("Program ID in instruction:", txInstr.programId.toBase58());
+      
+      // Build and simulate the transaction first
+      const builtTx = await txBuilder.transaction();
+      builtTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      builtTx.feePayer = wallet.publicKey;
+      
+      try {
+        const simResult = await connection.simulateTransaction(builtTx);
+        console.log("Simulation result:", simResult);
+        if (simResult.value.err) {
+          console.error("Simulation error:", simResult.value.err);
+          console.error("Simulation logs:", simResult.value.logs);
+          throw new Error(`Simulation failed: ${JSON.stringify(simResult.value.err)}\nLogs: ${simResult.value.logs?.join('\n')}`);
+        }
+      } catch (simErr) {
+        console.error("Simulation exception:", simErr);
+        throw simErr;
+      }
+      
+      const tx = await txBuilder.rpc({ skipPreflight: true, commitment: "confirmed" });
 
       setTxSignature(tx);
       console.log("Game queued with signature:", tx);
@@ -197,6 +231,13 @@ export const ChestGame: FC = () => {
       }
     } catch (err: unknown) {
       console.error("Game error:", err);
+      // Log transaction logs if available
+      if (err && typeof err === 'object' && 'transactionLogs' in err) {
+        console.error("Transaction logs:", (err as { transactionLogs: string[] }).transactionLogs);
+      }
+      if (err && typeof err === 'object' && 'logs' in err) {
+        console.error("Logs:", (err as { logs: string[] }).logs);
+      }
       setError(err instanceof Error ? err.message : "Failed to play game");
     } finally {
       setIsPlaying(false);

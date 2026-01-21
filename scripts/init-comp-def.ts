@@ -35,7 +35,7 @@ async function main() {
 
   // Load program
   const programId = new anchor.web3.PublicKey(
-    "DDA1LfvE1kM8h4CcyqX4278oCYyB7QAg693QREjfNsZS"
+    "9igfhJeu5kP8jyXJ1Li5TGS8G5KyYNExLBH6YUP6d6Jv"
   );
   const idl = JSON.parse(
     fs.readFileSync("./target/idl/veiled_chests.json", "utf-8")

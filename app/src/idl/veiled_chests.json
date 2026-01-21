@@ -1,5 +1,5 @@
 {
-  "address": "GDJouhuGtwjTAnbe4iTt7f1n9MH7MSTFZ2SzHTVtwc1k",
+  "address": "9igfhJeu5kP8jyXJ1Li5TGS8G5KyYNExLBH6YUP6d6Jv",
   "metadata": {
     "name": "veiled_chests",
     "version": "0.1.0",
@@ -136,7 +136,7 @@
         },
         {
           "name": "arcium_program",
-          "address": "BpaW2ZmCJnDwizWY8eM34JtVqp2kRgnmQcedSVc9USdP"
+          "address": "Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ"
         },
         {
           "name": "system_program",
@@ -265,6 +265,12 @@
               {
                 "kind": "const",
                 "value": [
+                  65,
+                  114,
+                  99,
+                  105,
+                  117,
+                  109,
                   83,
                   105,
                   103,
@@ -308,11 +314,12 @@
         {
           "name": "pool_account",
           "writable": true,
-          "address": "7Siux8am1QYYP6H1kx917GxuuBwV3CedW85wQz7kAdXn"
+          "address": "G2sRWJvi3xoyh5k2gY49eG9L8YhAEWQPtNb1zb1GXTtC"
         },
         {
           "name": "clock_account",
-          "address": "8snfPfMYu3KaueWE79seRqFeYSxzZEgVZ914JfiRvCGP"
+          "writable": true,
+          "address": "7EbMUTLo5DjdzbN7s8BXeZwXzEwNQb1hScfRvWg8a6ot"
         },
         {
           "name": "system_program",
@@ -320,7 +327,7 @@
         },
         {
           "name": "arcium_program",
-          "address": "BpaW2ZmCJnDwizWY8eM34JtVqp2kRgnmQcedSVc9USdP"
+          "address": "Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ"
         }
       ],
       "args": [
@@ -378,7 +385,7 @@
       "accounts": [
         {
           "name": "arcium_program",
-          "address": "BpaW2ZmCJnDwizWY8eM34JtVqp2kRgnmQcedSVc9USdP"
+          "address": "Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ"
         },
         {
           "name": "comp_def_account"
@@ -432,6 +439,19 @@
     }
   ],
   "accounts": [
+    {
+      "name": "ArciumSignerAccount",
+      "discriminator": [
+        214,
+        157,
+        122,
+        114,
+        117,
+        44,
+        214,
+        74
+      ]
+    },
     {
       "name": "ClockAccount",
       "discriminator": [
@@ -508,19 +528,6 @@
         159,
         17,
         117
-      ]
-    },
-    {
-      "name": "SignerAccount",
-      "discriminator": [
-        127,
-        212,
-        7,
-        180,
-        17,
-        50,
-        249,
-        193
       ]
     },
     {
@@ -638,6 +645,18 @@
       }
     },
     {
+      "name": "ArciumSignerAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "BN254G2BLSPublicKey",
       "type": {
         "kind": "struct",
@@ -734,14 +753,24 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "td_info",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "NodeMetadata"
+                }
+              }
+            }
+          },
+          {
             "name": "authority",
             "type": {
               "option": "pubkey"
             }
           },
           {
-            "name": "max_size",
-            "type": "u32"
+            "name": "cluster_size",
+            "type": "u16"
           },
           {
             "name": "activation",
@@ -789,11 +818,7 @@
           {
             "name": "pending_nodes",
             "type": {
-              "vec": {
-                "defined": {
-                  "name": "NodeRef"
-                }
-              }
+              "vec": "u32"
             }
           },
           {
@@ -1031,6 +1056,12 @@
         "variants": [
           {
             "name": "MxeKeygen"
+          },
+          {
+            "name": "MxeKeyRecoveryInit"
+          },
+          {
+            "name": "MxeKeyRecoveryFinalize"
           }
         ]
       }
@@ -1048,6 +1079,14 @@
             "type": {
               "option": "u32"
             }
+          },
+          {
+            "name": "keygen_offset",
+            "type": "u64"
+          },
+          {
+            "name": "key_recovery_init_offset",
+            "type": "u64"
           },
           {
             "name": "mxe_program_id",
@@ -1096,7 +1135,65 @@
             }
           },
           {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "MxeStatus"
+              }
+            }
+          },
+          {
             "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MxeStatus",
+      "docs": [
+        "The status of an MXE."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Recovery"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NodeMetadata",
+      "docs": [
+        "location as [ISO 3166-1 alpha-2](https://www.iso.org/iso-3166-country-codes.html) country code"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ip",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "peer_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "location",
             "type": "u8"
           }
         ]
@@ -1395,18 +1492,6 @@
                 "generic": "O"
               }
             ]
-          }
-        ]
-      }
-    },
-    {
-      "name": "SignerAccount",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "bump",
-            "type": "u8"
           }
         ]
       }

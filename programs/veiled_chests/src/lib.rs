@@ -10,7 +10,7 @@ const COMP_DEF_OFFSET_PLAY_CHEST_GAME: u32 = comp_def_offset("play_chest_game");
 pub const TREASURY_SEED: &[u8] = b"treasury";
 pub const GAME_SEED: &[u8] = b"game";
 
-declare_id!("GDJouhuGtwjTAnbe4iTt7f1n9MH7MSTFZ2SzHTVtwc1k");
+declare_id!("9igfhJeu5kP8jyXJ1Li5TGS8G5KyYNExLBH6YUP6d6Jv");
 
 #[arcium_program]
 pub mod veiled_chests {
@@ -333,27 +333,27 @@ pub struct PlayChestGame<'info> {
         seeds = [GAME_SEED, player.key().as_ref()],
         bump,
     )]
-    pub game_account: Account<'info, GameAccount>,
+    pub game_account: Box<Account<'info, GameAccount>>,
 
     #[account(
         mut,
         seeds = [TREASURY_SEED],
         bump = treasury.bump,
     )]
-    pub treasury: Account<'info, Treasury>,
+    pub treasury: Box<Account<'info, Treasury>>,
 
     #[account(
         init_if_needed,
         space = 9,
         payer = player,
-        seeds = [&SIGN_PDA_SEED],
+        seeds = [b"ArciumSignerAccount"],
         bump,
         address = derive_sign_pda!(),
     )]
-    pub sign_pda_account: Account<'info, SignerAccount>,
+    pub sign_pda_account: Account<'info, ArciumSignerAccount>,
     
     #[account(address = derive_mxe_pda!())]
-    pub mxe_account: Account<'info, MXEAccount>,
+    pub mxe_account: Box<Account<'info, MXEAccount>>,
     
     #[account(mut, address = derive_mempool_pda!(mxe_account, ErrorCode::ClusterNotSet))]
     /// CHECK: mempool_account, checked by the arcium program.
@@ -368,16 +368,16 @@ pub struct PlayChestGame<'info> {
     pub computation_account: UncheckedAccount<'info>,
     
     #[account(address = derive_comp_def_pda!(COMP_DEF_OFFSET_PLAY_CHEST_GAME))]
-    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    pub comp_def_account: Box<Account<'info, ComputationDefinitionAccount>>,
     
     #[account(mut, address = derive_cluster_pda!(mxe_account, ErrorCode::ClusterNotSet))]
-    pub cluster_account: Account<'info, Cluster>,
+    pub cluster_account: Box<Account<'info, Cluster>>,
     
     #[account(mut, address = ARCIUM_FEE_POOL_ACCOUNT_ADDRESS)]
-    pub pool_account: Account<'info, FeePool>,
+    pub pool_account: Box<Account<'info, FeePool>>,
     
-    #[account(address = ARCIUM_CLOCK_ACCOUNT_ADDRESS)]
-    pub clock_account: Account<'info, ClockAccount>,
+    #[account(mut, address = ARCIUM_CLOCK_ACCOUNT_ADDRESS)]
+    pub clock_account: Box<Account<'info, ClockAccount>>,
     
     pub system_program: Program<'info, System>,
     pub arcium_program: Program<'info, Arcium>,
@@ -389,16 +389,16 @@ pub struct PlayChestGameCallback<'info> {
     pub arcium_program: Program<'info, Arcium>,
     
     #[account(address = derive_comp_def_pda!(COMP_DEF_OFFSET_PLAY_CHEST_GAME))]
-    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    pub comp_def_account: Box<Account<'info, ComputationDefinitionAccount>>,
     
     #[account(address = derive_mxe_pda!())]
-    pub mxe_account: Account<'info, MXEAccount>,
+    pub mxe_account: Box<Account<'info, MXEAccount>>,
     
     /// CHECK: computation_account, checked by arcium program via constraints in the callback context.
     pub computation_account: UncheckedAccount<'info>,
     
     #[account(address = derive_cluster_pda!(mxe_account, ErrorCode::ClusterNotSet))]
-    pub cluster_account: Account<'info, Cluster>,
+    pub cluster_account: Box<Account<'info, Cluster>>,
     
     #[account(address = ::anchor_lang::solana_program::sysvar::instructions::ID)]
     /// CHECK: instructions_sysvar, checked by the account constraint
@@ -406,10 +406,10 @@ pub struct PlayChestGameCallback<'info> {
 
     // Custom accounts passed via CallbackAccount
     #[account(mut)]
-    pub game_account: Account<'info, GameAccount>,
+    pub game_account: Box<Account<'info, GameAccount>>,
 
     #[account(mut)]
-    pub treasury: Account<'info, Treasury>,
+    pub treasury: Box<Account<'info, Treasury>>,
 
     /// CHECK: player account for receiving winnings
     #[account(mut)]

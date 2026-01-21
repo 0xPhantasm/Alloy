@@ -3,7 +3,7 @@ import { Program } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { VeiledChests } from "../target/types/veiled_chests";
 
-const PROGRAM_ID = new PublicKey("DDA1LfvE1kM8h4CcyqX4278oCYyB7QAg693QREjfNsZS");
+const PROGRAM_ID = new PublicKey("9igfhJeu5kP8jyXJ1Li5TGS8G5KyYNExLBH6YUP6d6Jv");
 
 async function main() {
   // Setup provider

@@ -83,9 +83,8 @@ describe("VeiledChests", () => {
     
     const sig = await program.methods
       .initTreasury()
-      .accounts({
+      .accountsPartial({
         authority: owner.publicKey,
-        treasury: treasury,
       })
       .signers([owner])
       .rpc({ commitment: "confirmed" });
@@ -102,9 +101,8 @@ describe("VeiledChests", () => {
     
     const sig = await program.methods
       .fundTreasury(fundAmount)
-      .accounts({
+      .accountsPartial({
         funder: owner.publicKey,
-        treasury: treasury,
       })
       .signers([owner])
       .rpc({ commitment: "confirmed" });
