@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/veiled_chests.json`.
  */
 export type VeiledChests = {
-  "address": "9igfhJeu5kP8jyXJ1Li5TGS8G5KyYNExLBH6YUP6d6Jv",
+  "address": "8RBcYQFnSwmU8Yd8n9rmg85G5bfWeTcEAjN3LPC22ooG",
   "metadata": {
     "name": "veiledChests",
     "version": "0.1.0",
@@ -114,7 +114,9 @@ export type VeiledChests = {
     {
       "name": "initPlayChestGameCompDef",
       "docs": [
-        "Initialize the computation definition for play_chest_game"
+        "Initialize the computation definition for play_chest_game",
+        "Use None for circuit source on localnet (circuit pre-loaded in genesis)",
+        "Use OffChain source with GitHub URL for devnet/mainnet"
       ],
       "discriminator": [
         200,
@@ -139,6 +141,14 @@ export type VeiledChests = {
         {
           "name": "compDefAccount",
           "writable": true
+        },
+        {
+          "name": "addressLookupTable",
+          "writable": true
+        },
+        {
+          "name": "lutProgram",
+          "address": "AddressLookupTab1e1111111111111111111111111"
         },
         {
           "name": "arciumProgram",
@@ -1123,16 +1133,8 @@ export type VeiledChests = {
             }
           },
           {
-            "name": "fallbackClusters",
-            "type": {
-              "vec": "u32"
-            }
-          },
-          {
-            "name": "rejectedClusters",
-            "type": {
-              "vec": "u32"
-            }
+            "name": "lutOffsetSlot",
+            "type": "u64"
           },
           {
             "name": "computationDefinitions",

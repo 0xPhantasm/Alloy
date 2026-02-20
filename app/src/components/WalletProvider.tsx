@@ -16,11 +16,14 @@ interface Props {
 
 export const WalletProvider: FC<Props> = ({ children }) => {
   const endpoint = process.env.NEXT_PUBLIC_RPC_URL || "http://127.0.0.1:8899";
+  // Use a WebSocket endpoint to ensure subscriptions (e.g. Arcium finalization) work in browser
+  const wsEndpoint =
+    process.env.NEXT_PUBLIC_WS_RPC_URL || "ws://127.0.0.1:8900";
 
   const wallets = useMemo(() => [new PhantomWalletAdapter()], []);
 
   return (
-    <ConnectionProvider endpoint={endpoint}>
+    <ConnectionProvider endpoint={endpoint} config={{ wsEndpoint }}>
       <SolanaWalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>{children}</WalletModalProvider>
       </SolanaWalletProvider>

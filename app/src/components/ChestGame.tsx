@@ -1,12 +1,14 @@
 "use client";
 
-import { FC, useState, useCallback } from "react";
+import { FC, useState, useCallback, useEffect } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import { PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { PublicKey, SystemProgram, LAMPORTS_PER_SOL, ComputeBudgetProgram, Transaction } from "@solana/web3.js";
 import { Program, AnchorProvider, BN } from "@coral-xyz/anchor";
+import * as anchor from "@coral-xyz/anchor";
 import { x25519 } from "@noble/curves/ed25519";
 import IDL from "@/idl/veiled_chests.json";
+import type { VeiledChests } from "@/idl/veiled_chests";
 
 // Constants - Program ID derived from IDL
 const PROGRAM_ID = new PublicKey(IDL.address);
@@ -37,6 +39,59 @@ export const ChestGame: FC = () => {
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [txSignature, setTxSignature] = useState<string | null>(null);
+  const [solBalance, setSolBalance] = useState<number | null>(null);
+  const [isAirdropping, setIsAirdropping] = useState(false);
+
+  // Fetch wallet balance on connect and after airdrop
+  useEffect(() => {
+    if (!wallet.publicKey) {
+      setSolBalance(null);
+      return;
+    }
+    const fetchBalance = async () => {
+      try {
+        const bal = await connection.getBalance(wallet.publicKey!);
+        setSolBalance(bal / LAMPORTS_PER_SOL);
+      } catch {
+        setSolBalance(null);
+      }
+    };
+    fetchBalance();
+    const id = connection.onAccountChange(wallet.publicKey, (info) => {
+      setSolBalance(info.lamports / LAMPORTS_PER_SOL);
+    });
+    return () => { connection.removeAccountChangeListener(id); };
+  }, [wallet.publicKey, connection]);
+
+  const requestAirdrop = useCallback(async () => {
+    if (!wallet.publicKey) return;
+    setIsAirdropping(true);
+    setError(null);
+    try {
+      // Retry logic for Codespaces port forwarding drops
+      let sig: string | null = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          sig = await connection.requestAirdrop(wallet.publicKey, 2 * LAMPORTS_PER_SOL);
+          break;
+        } catch (fetchErr) {
+          if (attempt === 3) throw fetchErr;
+          console.warn(`Airdrop attempt ${attempt} failed, retrying...`);
+          await new Promise(r => setTimeout(r, 1500));
+        }
+      }
+      if (sig) {
+        await connection.confirmTransaction(sig, "confirmed");
+      }
+      const bal = await connection.getBalance(wallet.publicKey);
+      setSolBalance(bal / LAMPORTS_PER_SOL);
+    } catch (err) {
+      console.error("Airdrop failed:", err);
+      setError("Airdrop failed. Make sure you're on localnet/devnet.");
+    } finally {
+      setIsAirdropping(false);
+    }
+  }, [wallet.publicKey, connection]);
 
   const getProvider = useCallback(() => {
     if (!wallet.publicKey || !wallet.signTransaction || !wallet.signAllTransactions) {
@@ -77,7 +132,6 @@ export const ChestGame: FC = () => {
         getCompDefAccAddress,
         getCompDefAccOffset,
         getMXEPublicKey,
-        awaitComputationFinalization,
         getArciumProgramId,
         getFeePoolAccAddress,
         getClockAccAddress,
@@ -86,7 +140,35 @@ export const ChestGame: FC = () => {
 
       const provider = getProvider();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const program = new Program(IDL as any, provider);
+      const program = new Program<VeiledChests>(IDL as any, provider);
+
+      // Helper: cancel stale pending game (pending >60s)
+      const cancelStaleGameIfAny = async () => {
+        const [gamePda] = PublicKey.findProgramAddressSync(
+          [GAME_SEED, wallet.publicKey!.toBuffer()],
+          PROGRAM_ID
+        );
+        try {
+          const game = await program.account.gameAccount.fetchNullable(gamePda);
+          if (!game) return false;
+          const status = game.status as number; // 0 None, 1 Pending, 2 Completed, 3 Cancelled
+          if (status !== 1) return false;
+          const createdAt = Number(game.createdAt);
+          const now = Math.floor(Date.now() / 1000);
+          if (now - createdAt <= 60) return false; // not timed out yet
+
+          console.log("Cancelling stale pending game...", gamePda.toBase58());
+          const cancelTx = await program.methods
+            .cancelGame()
+            .accountsPartial({ player: wallet.publicKey!, gameAccount: gamePda })
+            .rpc();
+          console.log("Cancelled stale game:", cancelTx);
+          return true;
+        } catch (e) {
+          console.warn("Cancel check/attempt failed:", e);
+          return false;
+        }
+      };
 
       // Get MXE public key for encryption (may take time on devnet as keygen needs to complete)
       console.log("Fetching MXE public key for program:", PROGRAM_ID.toBase58());
@@ -113,6 +195,7 @@ export const ChestGame: FC = () => {
       
       // The ciphertext[0] is already in the correct format for [u8; 32]
       // Use Array.from() as shown in Arcium examples
+      console.log("Player choice (plaintext):", selectedChest);
       console.log("Encrypted choice:", ciphertext[0]);
 
       // Generate computation offset (use random bytes like the examples)
@@ -150,7 +233,7 @@ export const ChestGame: FC = () => {
           new BN(nonceValue.toString())
         )
         .accountsPartial({
-          player: wallet.publicKey,
+          player: wallet.publicKey!,
           gameAccount: gamePda,
           treasury: treasuryPda,
           signPdaAccount: signPda,
@@ -174,60 +257,259 @@ export const ChestGame: FC = () => {
       console.log("Transaction instruction keys:", txInstr.keys.map(k => ({ pubkey: k.pubkey.toBase58(), isSigner: k.isSigner, isWritable: k.isWritable })));
       console.log("Program ID in instruction:", txInstr.programId.toBase58());
       
-      // Build and simulate the transaction first
-      const builtTx = await txBuilder.transaction();
-      builtTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-      builtTx.feePayer = wallet.publicKey;
+      // Build transaction with priority fees for better landing rate on devnet
+      const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 200000 });
+      const computeUnitsIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 });
+      
+      // Retry blockhash fetch (Codespaces port forwarding can drop connections)
+      let blockhash: string;
+      let lastValidBlockHeight: number;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const result = await connection.getLatestBlockhash("confirmed");
+          blockhash = result.blockhash;
+          lastValidBlockHeight = result.lastValidBlockHeight;
+          break;
+        } catch (fetchErr) {
+          if (attempt === 3) throw fetchErr;
+          console.warn(`Blockhash fetch attempt ${attempt} failed, retrying...`);
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+      
+      const builtTx = new Transaction({
+        blockhash: blockhash!,
+        lastValidBlockHeight: lastValidBlockHeight!,
+        feePayer: wallet.publicKey!,
+      });
+      
+      builtTx.add(priorityFeeIx, computeUnitsIx, txInstr);
       
       try {
         const simResult = await connection.simulateTransaction(builtTx);
         console.log("Simulation result:", simResult);
         if (simResult.value.err) {
+          // If GameAlreadyActive (6004), try to cancel stale game then ask user to retry
+          const errObj = simResult.value.err as { InstructionError?: [number, { Custom: number }] } | null;
+          const customCode = errObj?.InstructionError?.[1] && (errObj.InstructionError[1] as any).Custom;
+          if (customCode === 6004) {
+            const cancelled = await cancelStaleGameIfAny();
+            if (cancelled) {
+              throw new Error("Previous game was still pending; canceled it. Please retry your move.");
+            }
+          }
           console.error("Simulation error:", simResult.value.err);
           console.error("Simulation logs:", simResult.value.logs);
           throw new Error(`Simulation failed: ${JSON.stringify(simResult.value.err)}\nLogs: ${simResult.value.logs?.join('\n')}`);
         }
+        console.log("Simulation passed! Sending transaction...");
       } catch (simErr) {
         console.error("Simulation exception:", simErr);
         throw simErr;
       }
       
-      const tx = await txBuilder.rpc({ skipPreflight: true, commitment: "confirmed" });
+      // Sign and send with retry mechanism for devnet congestion
+      const signedTx = await wallet.signTransaction!(builtTx);
+      const rawTx = signedTx.serialize();
+      
+      let tx: string | null = null;
+      let confirmed = false;
+      const maxAttempts = 3;
+      
+      for (let attempt = 1; attempt <= maxAttempts && !confirmed; attempt++) {
+        try {
+          tx = await connection.sendRawTransaction(rawTx, {
+            skipPreflight: true,
+            maxRetries: 3,
+          });
+          
+          console.log(`Transaction sent (attempt ${attempt}/${maxAttempts}):`, tx);
+          
+          // Use a polling approach for confirmation with timeout
+          const startTime = Date.now();
+          const timeout = 45000; // 45 seconds
+          
+          while (Date.now() - startTime < timeout) {
+            const status = await connection.getSignatureStatus(tx);
+            if (status.value?.confirmationStatus === "confirmed" || status.value?.confirmationStatus === "finalized") {
+              if (status.value.err) {
+                throw new Error(`Transaction failed on-chain: ${JSON.stringify(status.value.err)}`);
+              }
+              confirmed = true;
+              console.log("Transaction confirmed!");
+              break;
+            }
+            // Wait before next poll
+            await new Promise(r => setTimeout(r, 2000));
+          }
+          
+          if (!confirmed && attempt < maxAttempts) {
+            console.log("Transaction not confirmed, retrying...");
+          }
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          if (attempt === maxAttempts) {
+            throw new Error(`Failed after ${maxAttempts} attempts: ${errMsg}`);
+          }
+          console.warn(`Attempt ${attempt} failed:`, errMsg);
+        }
+      }
+      
+      if (!confirmed || !tx) {
+        throw new Error("Transaction failed to confirm after multiple attempts. Please try again.");
+      }
 
       setTxSignature(tx);
       console.log("Game queued with signature:", tx);
 
-      // Wait for MPC computation
-      const resultSig = await awaitComputationFinalization(
-        provider,
-        computationOffset,
-        PROGRAM_ID,
-        "confirmed"
-      );
+      // Wait for MPC computation using HTTP polling (WebSocket often fails through port-forwarding)
+      console.log("Polling game account for MPC result...");
+      const pollStartTime = Date.now();
+      const pollTimeout = 120000; // 2 minutes
+      let callbackTxSig: string | null = null;
 
-      console.log("Computation finalized:", resultSig);
+      while (Date.now() - pollStartTime < pollTimeout) {
+        try {
+          const gameInfo = await program.account.gameAccount.fetch(gamePda);
+          const status = gameInfo.status as number;
+          if (status === 2) { // Completed
+            console.log("Game completed! Finding callback transaction...");
+            // Find the callback tx by scanning recent signatures for the game PDA.
+            // We need the tx that contains our program's callback logs (not an Arcium internal tx).
+            const sigs = await connection.getSignaturesForAddress(gamePda, { limit: 10 }, "confirmed");
+            for (const sig of sigs) {
+              if (sig.signature === tx) continue; // skip the player's own tx
+              const candidate = await connection.getTransaction(sig.signature, {
+                commitment: "confirmed",
+                maxSupportedTransactionVersion: 0,
+              });
+              if (candidate?.meta?.logMessages) {
+                // Look for our program's callback by checking for game result log messages
+                const hasCallbackLog = candidate.meta.logMessages.some(
+                  l => l.includes("Player WON") || l.includes("Player lost") || l.includes("Game cancelled")
+                );
+                if (hasCallbackLog) {
+                  callbackTxSig = sig.signature;
+                  console.log("Found callback tx:", sig.signature.slice(0, 20), "with", candidate.meta.logMessages.length, "logs");
+                  break;
+                }
+              }
+            }
+            break;
+          } else if (status === 3) { // Cancelled
+            throw new Error("Game was cancelled by the network.");
+          } else if (status === 1) {
+            // Still pending — check if a callback already failed (AbortedComputation)
+            const elapsed = Date.now() - pollStartTime;
+            if (elapsed > 30000) {
+              // After 30s, check for failed callback transactions
+              const sigs = await connection.getSignaturesForAddress(gamePda, { limit: 5 }, "confirmed");
+              const hasFailed = sigs.some(s => s.signature !== tx && s.err !== null);
+              if (hasFailed) {
+                console.warn("Callback failed (AbortedComputation). Attempting to cancel game...");
+                try {
+                  await cancelStaleGameIfAny();
+                } catch { /* ignore */ }
+                throw new Error("MPC computation failed (AbortedComputation). This can happen if the circuit was updated but localnet wasn't restarted. Please restart localnet and re-initialize.");
+              }
+            }
+          }
+        } catch (pollErr: unknown) {
+          // Rethrow known terminal errors
+          if (pollErr instanceof Error && (
+            pollErr.message.includes("cancelled") || pollErr.message.includes("Cancelled") ||
+            pollErr.message.includes("AbortedComputation") || pollErr.message.includes("MPC computation failed")
+          )) {
+            throw pollErr;
+          }
+          console.warn("Poll fetch error (retrying):", pollErr);
+        }
+        await new Promise(r => setTimeout(r, 3000));
+      }
 
-      // Parse the result from logs or events
-      // The callback will emit a GameResultEvent
-      const txDetails = await connection.getTransaction(resultSig, {
-        commitment: "confirmed",
-        maxSupportedTransactionVersion: 0,
-      });
+      if (!callbackTxSig) {
+        // Even without the callback tx, the game may have completed
+        // Try one final check on game status
+        try {
+          const finalGame = await program.account.gameAccount.fetch(gamePda);
+          if ((finalGame.status as number) !== 2) {
+            throw new Error("Timed out waiting for MPC computation result. The game may still complete - check your wallet balance.");
+          }
+        } catch {
+          throw new Error("Timed out waiting for MPC computation result.");
+        }
+      }
 
-      if (txDetails?.meta?.logMessages) {
-        const logs = txDetails.meta.logMessages.join("\n");
-        const wonMatch = logs.match(/Player (WON|lost)/);
-        const chestMatch = logs.match(/Chest (\d+)|Winning chest was (\d+)/);
-        
-        const playerWon = wonMatch?.[1] === "WON";
-        const winningChest = parseInt(chestMatch?.[1] || chestMatch?.[2] || "0");
-        const payout = playerWon ? betAmount * numChests : 0;
+      console.log("Computation finalized:", callbackTxSig);
 
-        setGameResult({
-          playerWon,
-          winningChest,
-          payout,
+      // Parse the result from callback transaction using Anchor event decoding
+      if (callbackTxSig) {
+        const txDetails = await connection.getTransaction(callbackTxSig, {
+          commitment: "confirmed",
+          maxSupportedTransactionVersion: 0,
         });
+
+        if (txDetails?.meta?.logMessages) {
+          console.log("Callback tx logs:", txDetails.meta.logMessages);
+
+          // Decode Anchor events from logs (more reliable than regex)
+          const eventParser = new anchor.EventParser(program.programId, program.coder);
+          const events: { name: string; data: Record<string, unknown> }[] = [];
+          for (const event of eventParser.parseLogs(txDetails.meta.logMessages)) {
+            events.push(event as { name: string; data: Record<string, unknown> });
+          }
+
+          console.log("Decoded events:", events);
+          const resultEvent = events.find(e => e.name === "gameResultEvent");
+
+          if (resultEvent) {
+            const data = resultEvent.data as {
+              playerWon: boolean;
+              winningChest: number;
+              payout: { toNumber?: () => number };
+              betAmount: { toNumber?: () => number };
+            };
+            const payoutLamports = typeof data.payout === 'object' && data.payout?.toNumber
+              ? data.payout.toNumber()
+              : Number(data.payout);
+
+            // Clamp winningChest to valid range (safety for MPC RNG edge cases)
+            const safeWinningChest = data.winningChest < numChests ? data.winningChest : data.winningChest % numChests;
+
+            setGameResult({
+              playerWon: data.playerWon,
+              winningChest: safeWinningChest,
+              payout: payoutLamports / LAMPORTS_PER_SOL,
+            });
+            setGameStep('result');
+          } else {
+            // Fallback: try regex on logs
+            console.warn("No GameResultEvent found in logs, falling back to regex");
+            const logs = txDetails.meta.logMessages.join("\n");
+            const wonMatch = logs.match(/Player (WON|lost)/i);
+            const chestMatch = logs.match(/Chest (\d+)|Winning chest was (\d+)/);
+            
+            const playerWon = wonMatch?.[1]?.toUpperCase() === "WON";
+            const rawChest = parseInt(chestMatch?.[1] || chestMatch?.[2] || "0");
+            const winningChest = rawChest < numChests ? rawChest : rawChest % numChests;
+            const payout = playerWon ? betAmount * numChests : 0;
+
+            setGameResult({ playerWon, winningChest, payout });
+            setGameStep('result');
+          }
+        } else {
+          console.warn("No logs found in callback tx");
+          setGameResult({ playerWon: false, winningChest: 0, payout: 0 });
+          setGameStep('result');
+        }
+      } else {
+        // Callback tx not found but game completed — infer result from balance change
+        setGameResult({
+          playerWon: false,
+          winningChest: 0,
+          payout: 0,
+        });
+        setGameStep('result');
       }
     } catch (err: unknown) {
       console.error("Game error:", err);
@@ -282,7 +564,24 @@ export const ChestGame: FC = () => {
             </nav>
             
             {/* Wallet */}
-            <div>
+            <div className="flex items-center gap-3">
+              {wallet.publicKey && solBalance !== null && (
+                <span className="text-gray-400 text-sm">{solBalance.toFixed(2)} SOL</span>
+              )}
+              {wallet.publicKey && (solBalance === null || solBalance < 0.1) && (
+                <button
+                  onClick={requestAirdrop}
+                  disabled={isAirdropping}
+                  className="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all disabled:opacity-50"
+                  style={{
+                    background: 'rgba(34, 197, 94, 0.15)',
+                    borderColor: '#22c55e',
+                    color: '#4ade80',
+                  }}
+                >
+                  {isAirdropping ? "Airdropping..." : "Airdrop 2 SOL"}
+                </button>
+              )}
               <WalletMultiButton />
             </div>
           </div>
@@ -532,6 +831,91 @@ export const ChestGame: FC = () => {
                 <p className="text-red-300 text-center">{error}</p>
               </div>
             )}
+          </section>
+        )}
+
+        {/* Result Section */}
+        {gameStep === 'result' && gameResult && (
+          <section className="min-h-[calc(100vh-120px)] flex flex-col items-center justify-center px-8">
+            <div
+              className="relative p-1 rounded-lg"
+              style={{
+                background: gameResult.playerWon
+                  ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 50%, #22c55e 100%)'
+                  : 'linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #ef4444 100%)',
+              }}
+            >
+              <div
+                className="px-16 py-12 rounded-lg text-center"
+                style={{
+                  background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(5, 15, 25, 0.98) 100%)',
+                  minWidth: '500px',
+                }}
+              >
+                {/* Result Icon */}
+                <div className="text-8xl mb-6">
+                  {gameResult.playerWon ? '🎉' : '💀'}
+                </div>
+
+                {/* Result Title */}
+                <h2
+                  className="text-5xl font-bold mb-4 tracking-wide"
+                  style={{
+                    background: gameResult.playerWon
+                      ? 'linear-gradient(90deg, #22c55e 0%, #4ade80 100%)'
+                      : 'linear-gradient(90deg, #ef4444 0%, #f87171 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                  }}
+                >
+                  {gameResult.playerWon ? 'YOU WON!' : 'YOU LOST'}
+                </h2>
+
+                {/* Winning Chest */}
+                <p className="text-gray-400 text-lg mb-2">
+                  The winning chest was{' '}
+                  <span className="text-yellow-400 font-bold">#{gameResult.winningChest + 1}</span>
+                </p>
+
+                {/* Your Choice */}
+                <p className="text-gray-500 text-base mb-6">
+                  You chose{' '}
+                  <span className="text-gray-300 font-bold">Chest #{(selectedChest ?? 0) + 1}</span>
+                </p>
+
+                {/* Payout */}
+                {gameResult.playerWon && (
+                  <p className="text-green-400 text-2xl font-bold mb-8">
+                    +{gameResult.payout.toFixed(2)} SOL
+                  </p>
+                )}
+                {!gameResult.playerWon && (
+                  <p className="text-red-400 text-2xl font-bold mb-8">
+                    -{betAmount.toFixed(2)} SOL
+                  </p>
+                )}
+
+                {/* Transaction Link */}
+                {txSignature && (
+                  <p className="text-gray-500 text-xs mb-8 break-all">
+                    TX: {txSignature.slice(0, 20)}...{txSignature.slice(-20)}
+                  </p>
+                )}
+
+                {/* Play Again */}
+                <button
+                  onClick={resetGame}
+                  className="w-full py-3 text-lg font-bold transition-all hover:scale-[1.02] border-2 rounded-lg"
+                  style={{
+                    background: 'rgba(59, 7, 100, 0.6)',
+                    borderColor: '#6b21a8',
+                    color: '#a855f7',
+                  }}
+                >
+                  PLAY AGAIN
+                </button>
+              </div>
+            </div>
           </section>
         )}
       </div>

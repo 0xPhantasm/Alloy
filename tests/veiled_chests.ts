@@ -20,6 +20,8 @@ import {
   getExecutingPoolAccAddress,
   getComputationAccAddress,
   getClusterAccAddress,
+  getLookupTableAddress,
+  getArciumProgram,
   x25519,
 } from "@arcium-hq/client";
 import * as fs from "fs";
@@ -51,6 +53,15 @@ describe("VeiledChests", () => {
     return event;
   };
 
+  /**
+   * Gets the cluster account address using the cluster offset from environment.
+   */
+  function getClusterAccount(): PublicKey {
+    return getClusterAccAddress(arciumEnv.arciumClusterOffset);
+  }
+
+  const clusterAccount = getClusterAccount();
+
   // Helper to get treasury PDA
   function getTreasuryPDA(): PublicKey {
     return PublicKey.findProgramAddressSync(
@@ -70,6 +81,11 @@ describe("VeiledChests", () => {
   it("Initializes the computation definition", async () => {
     const owner = readKpJson(`${os.homedir()}/.config/solana/id.json`);
 
+    // Wait for MXE public key to be available first (keygen must complete)
+    console.log("Waiting for MXE keygen to complete...");
+    const mxePublicKey = await getMXEPublicKeyWithRetry(provider, program.programId);
+    console.log("MXE x25519 pubkey is", Buffer.from(mxePublicKey).toString("hex"));
+
     console.log("Initializing play_chest_game computation definition...");
     const sig = await initPlayChestGameCompDef(program, owner);
     console.log("Comp def initialized with signature:", sig);
@@ -87,7 +103,7 @@ describe("VeiledChests", () => {
         authority: owner.publicKey,
       })
       .signers([owner])
-      .rpc({ commitment: "confirmed" });
+      .rpc({ commitment: "confirmed", preflightCommitment: "confirmed" });
     
     console.log("Treasury initialized with signature:", sig);
   });
@@ -105,7 +121,7 @@ describe("VeiledChests", () => {
         funder: owner.publicKey,
       })
       .signers([owner])
-      .rpc({ commitment: "confirmed" });
+      .rpc({ commitment: "confirmed", preflightCommitment: "confirmed" });
     
     console.log("Treasury funded with 10 SOL, signature:", sig);
   });
@@ -113,7 +129,7 @@ describe("VeiledChests", () => {
   it("Plays a chest game", async () => {
     const player = readKpJson(`${os.homedir()}/.config/solana/id.json`);
     
-    // Get MXE public key for encryption
+    // Get MXE public key for encryption (already available from init)
     const mxePublicKey = await getMXEPublicKeyWithRetry(provider, program.programId);
     console.log("MXE x25519 pubkey is", Buffer.from(mxePublicKey).toString("hex"));
 
@@ -134,7 +150,6 @@ describe("VeiledChests", () => {
 
     // Generate computation offset
     const computationOffset = new anchor.BN(randomBytes(8), "hex");
-    const clusterOffset = arciumEnv.arciumClusterOffset;
 
     console.log("Playing chest game...");
     console.log(`  - Num chests: ${numChests}`);
@@ -158,11 +173,11 @@ describe("VeiledChests", () => {
         player: player.publicKey,
         gameAccount: getGamePDA(player.publicKey),
         treasury: getTreasuryPDA(),
-        computationAccount: getComputationAccAddress(clusterOffset, computationOffset),
-        clusterAccount: getClusterAccAddress(clusterOffset),
+        computationAccount: getComputationAccAddress(arciumEnv.arciumClusterOffset, computationOffset),
+        clusterAccount: clusterAccount,
         mxeAccount: getMXEAccAddress(program.programId),
-        mempoolAccount: getMempoolAccAddress(clusterOffset),
-        executingPool: getExecutingPoolAccAddress(clusterOffset),
+        mempoolAccount: getMempoolAccAddress(arciumEnv.arciumClusterOffset),
+        executingPool: getExecutingPoolAccAddress(arciumEnv.arciumClusterOffset),
         compDefAccount: getCompDefAccAddress(
           program.programId,
           Buffer.from(getCompDefAccOffset("play_chest_game")).readUInt32LE()
@@ -214,20 +229,29 @@ describe("VeiledChests", () => {
 
     console.log("Comp def PDA:", compDefPDA.toBase58());
 
+    // Get LUT address (v0.7.0)
+    const arciumProgram = getArciumProgram(provider);
+    const mxeAccount = getMXEAccAddress(program.programId);
+    const mxeAcc = await arciumProgram.account.mxeAccount.fetch(mxeAccount);
+    const lutAddress = getLookupTableAddress(program.programId, mxeAcc.lutOffsetSlot);
+
+    console.log("LUT address:", lutAddress.toBase58());
+
     // Initialize the comp def
     const sig = await program.methods
       .initPlayChestGameCompDef()
       .accounts({
         compDefAccount: compDefPDA,
         payer: owner.publicKey,
-        mxeAccount: getMXEAccAddress(program.programId),
+        mxeAccount: mxeAccount,
+        addressLookupTable: lutAddress,
       })
       .signers([owner])
-      .rpc({ commitment: "confirmed" });
+      .rpc({ commitment: "confirmed", preflightCommitment: "confirmed" });
 
     console.log("Init comp def transaction:", sig);
 
-    // Finalize the comp def
+    // Finalize the comp def (required for localnet)
     const finalizeTx = await buildFinalizeCompDefTx(
       provider,
       Buffer.from(offset).readUInt32LE(),
@@ -249,21 +273,25 @@ describe("VeiledChests", () => {
 async function getMXEPublicKeyWithRetry(
   provider: anchor.AnchorProvider,
   programId: PublicKey,
-  maxRetries: number = 20,
-  retryDelayMs: number = 500
+  maxRetries: number = 60,
+  retryDelayMs: number = 1000
 ): Promise<Uint8Array> {
+  console.log("Waiting for MXE keygen to complete (this can take 30-60s on localnet)...");
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const mxePublicKey = await getMXEPublicKey(provider, programId);
       if (mxePublicKey) {
+        console.log("MXE keygen complete!");
         return mxePublicKey;
       }
     } catch (error) {
-      console.log(`Attempt ${attempt} failed to fetch MXE public key:`, error);
+      // Silently retry
     }
 
     if (attempt < maxRetries) {
-      console.log(`Retrying in ${retryDelayMs}ms... (attempt ${attempt}/${maxRetries})`);
+      if (attempt % 10 === 0) {
+        console.log(`Still waiting for MXE keygen... (${attempt}s)`);
+      }
       await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     }
   }

@@ -1,5 +1,5 @@
 {
-  "address": "9igfhJeu5kP8jyXJ1Li5TGS8G5KyYNExLBH6YUP6d6Jv",
+  "address": "8RBcYQFnSwmU8Yd8n9rmg85G5bfWeTcEAjN3LPC22ooG",
   "metadata": {
     "name": "veiled_chests",
     "version": "0.1.0",
@@ -108,7 +108,9 @@
     {
       "name": "init_play_chest_game_comp_def",
       "docs": [
-        "Initialize the computation definition for play_chest_game"
+        "Initialize the computation definition for play_chest_game",
+        "Use None for circuit source on localnet (circuit pre-loaded in genesis)",
+        "Use OffChain source with GitHub URL for devnet/mainnet"
       ],
       "discriminator": [
         200,
@@ -133,6 +135,14 @@
         {
           "name": "comp_def_account",
           "writable": true
+        },
+        {
+          "name": "address_lookup_table",
+          "writable": true
+        },
+        {
+          "name": "lut_program",
+          "address": "AddressLookupTab1e1111111111111111111111111"
         },
         {
           "name": "arcium_program",
@@ -1117,16 +1127,8 @@
             }
           },
           {
-            "name": "fallback_clusters",
-            "type": {
-              "vec": "u32"
-            }
-          },
-          {
-            "name": "rejected_clusters",
-            "type": {
-              "vec": "u32"
-            }
+            "name": "lut_offset_slot",
+            "type": "u64"
           },
           {
             "name": "computation_definitions",

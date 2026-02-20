@@ -35,7 +35,7 @@ async function main() {
 
   // Load program
   const programId = new anchor.web3.PublicKey(
-    "9igfhJeu5kP8jyXJ1Li5TGS8G5KyYNExLBH6YUP6d6Jv"
+    "8RBcYQFnSwmU8Yd8n9rmg85G5bfWeTcEAjN3LPC22ooG"
   );
   const idl = JSON.parse(
     fs.readFileSync("./target/idl/veiled_chests.json", "utf-8")
@@ -63,7 +63,7 @@ async function main() {
         compDefAccount: compDefAccount,
         arciumProgram: arciumProgramId,
       })
-      .rpc({ skipPreflight: true });
+      .rpc();
 
     console.log("✅ Comp def initialized!");
     console.log("Transaction signature:", tx);

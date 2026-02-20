@@ -9,7 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@arcium-hq/client": "0.6.3",
+    "@arcium-hq/client": "0.8.0",
     "@coral-xyz/anchor": "^0.32.1",
     "@noble/curves": "^1.8.2",
     "@solana/wallet-adapter-base": "^0.9.27",
@@ -27,6 +27,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "baseline-browser-mapping": "^2.10.0",
     "eslint": "^9",
     "eslint-config-next": "16.0.8",
     "tailwindcss": "^4",

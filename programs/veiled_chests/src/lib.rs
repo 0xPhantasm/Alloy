@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use arcium_anchor::prelude::*;
-use arcium_client::idl::arcium::types::{CallbackAccount, CircuitSource, OffChainCircuitSource};
-use arcium_macros::circuit_hash;
+use arcium_anchor::LUT_PROGRAM_ID;
+use arcium_client::idl::arcium::types::CallbackAccount;
 
 const COMP_DEF_OFFSET_PLAY_CHEST_GAME: u32 = comp_def_offset("play_chest_game");
 
@@ -10,20 +10,26 @@ const COMP_DEF_OFFSET_PLAY_CHEST_GAME: u32 = comp_def_offset("play_chest_game");
 pub const TREASURY_SEED: &[u8] = b"treasury";
 pub const GAME_SEED: &[u8] = b"game";
 
-declare_id!("9igfhJeu5kP8jyXJ1Li5TGS8G5KyYNExLBH6YUP6d6Jv");
+declare_id!("8RBcYQFnSwmU8Yd8n9rmg85G5bfWeTcEAjN3LPC22ooG");
 
 #[arcium_program]
 pub mod veiled_chests {
     use super::*;
 
     /// Initialize the computation definition for play_chest_game
+    /// Use None for circuit source on localnet (circuit pre-loaded in genesis)
+    /// Use OffChain source with GitHub URL for devnet/mainnet
     pub fn init_play_chest_game_comp_def(ctx: Context<InitPlayChestGameCompDef>) -> Result<()> {
+        // For localnet testing, use None - the circuit is pre-loaded from genesis accounts
+        // For devnet/mainnet deployment, uncomment the OffChain source below
         init_comp_def(
             ctx.accounts,
-            Some(CircuitSource::OffChain(OffChainCircuitSource {
-                source: "https://raw.githubusercontent.com/0xPhantasm/Alloy/main/build/play_chest_game.arcis".to_string(),
-                hash: circuit_hash!("play_chest_game"),
-            })),
+            None, // Localnet: circuit loaded from raw_circuit genesis account
+            // Uncomment for devnet/mainnet:
+            // Some(CircuitSource::OffChain(OffChainCircuitSource {
+            //     source: "https://raw.githubusercontent.com/0xPhantasm/Alloy/main/build/play_chest_game.arcis".to_string(),
+            //     hash: circuit_hash!("play_chest_game"),
+            // })),
             None,
         )?;
         Ok(())
@@ -77,7 +83,12 @@ pub mod veiled_chests {
         // Check if player already has an active game
         {
             let game = &ctx.accounts.game_account;
-            require!(game.status == GameStatus::None as u8 || game.status == GameStatus::Completed as u8, ErrorCode::GameAlreadyActive);
+            require!(
+                game.status == GameStatus::None as u8 
+                    || game.status == GameStatus::Completed as u8 
+                    || game.status == GameStatus::Cancelled as u8, 
+                ErrorCode::GameAlreadyActive
+            );
         }
 
         // Transfer bet from player to game account (held until result)
@@ -112,12 +123,11 @@ pub mod veiled_chests {
             .plaintext_u8(num_chests)     // Plaintext num_chests
             .build();
 
-        // Queue the MPC computation (v0.5.1 - 7 params with cu_price_micro)
+        // Queue the MPC computation (v0.7.0 - callback_url removed)
         queue_computation(
             ctx.accounts, 
             computation_offset, 
             args, 
-            None, 
             vec![PlayChestGameCallback::callback_ix(
                 computation_offset, 
                 &ctx.accounts.mxe_account, 
@@ -441,6 +451,12 @@ pub struct InitPlayChestGameCompDef<'info> {
     #[account(mut)]
     /// CHECK: comp_def_account, checked by arcium program.
     pub comp_def_account: UncheckedAccount<'info>,
+    #[account(mut, address = derive_mxe_lut_pda!(mxe_account.lut_offset_slot))]
+    /// CHECK: address_lookup_table, checked by arcium program.
+    pub address_lookup_table: UncheckedAccount<'info>,
+    #[account(address = LUT_PROGRAM_ID)]
+    /// CHECK: lut_program is the Address Lookup Table program.
+    pub lut_program: UncheckedAccount<'info>,
     pub arcium_program: Program<'info, Arcium>,
     pub system_program: Program<'info, System>,
 }
