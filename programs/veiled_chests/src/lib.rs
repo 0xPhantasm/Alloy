@@ -10,7 +10,7 @@ const COMP_DEF_OFFSET_PLAY_CHEST_GAME: u32 = comp_def_offset("play_chest_game");
 pub const TREASURY_SEED: &[u8] = b"treasury";
 pub const GAME_SEED: &[u8] = b"game";
 
-declare_id!("8RBcYQFnSwmU8Yd8n9rmg85G5bfWeTcEAjN3LPC22ooG");
+declare_id!("BK7k8VuAAZ5Cw9MQNuGT4D7d6ampq3BFGrkdPwAaVfES");
 
 #[arcium_program]
 pub mod veiled_chests {

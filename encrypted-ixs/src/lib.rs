@@ -25,17 +25,13 @@ mod circuits {
         let player_choice = player_choice_ctxt.to_arcis();
         
         // Generate random winning chest (0 to num_chests-1)
-        // v0.5.1 API: gen_integer_in_range(min, max, n_attempts) -> (value, success)
-        // We use num_chests as max (exclusive), so valid range is 0 to num_chests-1
-        // Use moderate attempt count — with range 2-5, rejection sampling almost
-        // always succeeds on first try. Modulo below is the safety net.
-        let (winning_chest_u128, _success) = ArcisRNG::gen_integer_in_range(
-            0u128, 
-            num_chests as u128, 
-            10  // n_attempts for rejection sampling (10 is plenty for range ≤5)
-        );
-        // Safety: clamp to valid range in case rejection sampling exhausted all attempts
-        let winning_chest = (winning_chest_u128 % (num_chests as u128)) as u8;
+        // Using the same approach as Arcium's rock_paper_scissors/against-house:
+        // combine random bits. 3 bits give us 0-7; modulo maps into [0, num_chests).
+        let b0 = ArcisRNG::bool() as u8;
+        let b1 = ArcisRNG::bool() as u8;
+        let b2 = ArcisRNG::bool() as u8;
+        let random_3bit = b0 + (b1 * 2) + (b2 * 4); // 0..=7
+        let winning_chest = random_3bit % num_chests;
         
         // Check if player won
         let player_won = player_choice.choice == winning_chest;

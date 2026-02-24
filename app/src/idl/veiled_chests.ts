@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/veiled_chests.json`.
  */
 export type VeiledChests = {
-  "address": "8RBcYQFnSwmU8Yd8n9rmg85G5bfWeTcEAjN3LPC22ooG",
+  "address": "BK7k8VuAAZ5Cw9MQNuGT4D7d6ampq3BFGrkdPwAaVfES",
   "metadata": {
     "name": "veiledChests",
     "version": "0.1.0",
