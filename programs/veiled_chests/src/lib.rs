@@ -2,7 +2,8 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use arcium_anchor::prelude::*;
 use arcium_anchor::LUT_PROGRAM_ID;
-use arcium_client::idl::arcium::types::CallbackAccount;
+use arcium_client::idl::arcium::types::{CallbackAccount, CircuitSource, OffChainCircuitSource};
+use arcium_macros::circuit_hash;
 
 const COMP_DEF_OFFSET_PLAY_CHEST_GAME: u32 = comp_def_offset("play_chest_game");
 
@@ -24,12 +25,10 @@ pub mod veiled_chests {
         // For devnet/mainnet deployment, uncomment the OffChain source below
         init_comp_def(
             ctx.accounts,
-            None, // Localnet: circuit loaded from raw_circuit genesis account
-            // Uncomment for devnet/mainnet:
-            // Some(CircuitSource::OffChain(OffChainCircuitSource {
-            //     source: "https://raw.githubusercontent.com/0xPhantasm/Alloy/main/build/play_chest_game.arcis".to_string(),
-            //     hash: circuit_hash!("play_chest_game"),
-            // })),
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: "https://raw.githubusercontent.com/0xPhantasm/Alloy/main/build/play_chest_game.arcis".to_string(),
+                hash: circuit_hash!("play_chest_game"),
+            })),
             None,
         )?;
         Ok(())
