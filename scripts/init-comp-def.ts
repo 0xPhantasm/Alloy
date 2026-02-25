@@ -1,12 +1,13 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { VeiledChests } from "../target/types/veiled_chests";
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import { Connection, Keypair } from "@solana/web3.js";
 import {
   getMXEAccAddress,
   getCompDefAccAddress,
   getCompDefAccOffset,
-  getArciumProgramId,
+  getArciumProgram,
+  getLookupTableAddress,
 } from "@arcium-hq/client";
 import fs from "fs";
 import path from "path";
@@ -22,48 +23,49 @@ async function main() {
   const keypairData = JSON.parse(fs.readFileSync(keypairPath, "utf-8"));
   const payer = Keypair.fromSecretKey(new Uint8Array(keypairData));
 
-  // Connect to devnet with Helius RPC
-  const connection = new Connection(
-    "https://devnet.helius-rpc.com/?api-key=98664a07-fdde-46f8-ac7d-7efd848339c4",
-    "confirmed"
+  // Load IDL and derive program ID
+  const idl = JSON.parse(
+    fs.readFileSync("./target/idl/veiled_chests.json", "utf-8")
   );
+  const programId = new anchor.web3.PublicKey(idl.address);
+
+  // Connect — Helius devnet RPC
+  const rpcUrl = "https://devnet.helius-rpc.com/?api-key=0c8dfde7-5739-4d2b-8063-d8e8af79bd0e";
+  const connection = new Connection(rpcUrl, "confirmed");
 
   const wallet = new anchor.Wallet(payer);
   const provider = new anchor.AnchorProvider(connection, wallet, {
     commitment: "confirmed",
   });
 
-  // Load program
-  const programId = new anchor.web3.PublicKey(
-    "8RBcYQFnSwmU8Yd8n9rmg85G5bfWeTcEAjN3LPC22ooG"
-  );
-  const idl = JSON.parse(
-    fs.readFileSync("./target/idl/veiled_chests.json", "utf-8")
-  );
   const program = new Program(idl, provider) as Program<VeiledChests>;
 
   // Derive Arcium accounts
   const mxeAccount = getMXEAccAddress(programId);
   const compDefOffset = Buffer.from(getCompDefAccOffset("play_chest_game")).readUInt32LE();
   const compDefAccount = getCompDefAccAddress(programId, compDefOffset);
-  const arciumProgramId = getArciumProgramId();
+
+  // Derive the Address Lookup Table address from the MXE account
+  const arciumProgram = getArciumProgram(provider);
+  const mxeAcc = await arciumProgram.account.mxeAccount.fetch(mxeAccount);
+  const lutAddress = getLookupTableAddress(programId, mxeAcc.lutOffsetSlot);
 
   console.log("Initializing computation definition for play_chest_game...");
   console.log("Using payer:", payer.publicKey.toBase58());
   console.log("MXE Account:", mxeAccount.toBase58());
   console.log("Comp Def Account:", compDefAccount.toBase58());
-  console.log("Arcium Program:", arciumProgramId.toBase58());
+  console.log("LUT Address:", lutAddress.toBase58());
 
   try {
     const tx = await program.methods
       .initPlayChestGameCompDef()
-      .accountsPartial({
+      .accounts({
         payer: payer.publicKey,
         mxeAccount: mxeAccount,
         compDefAccount: compDefAccount,
-        arciumProgram: arciumProgramId,
+        addressLookupTable: lutAddress,
       })
-      .rpc();
+      .rpc({ commitment: "confirmed", preflightCommitment: "confirmed" });
 
     console.log("✅ Comp def initialized!");
     console.log("Transaction signature:", tx);
