@@ -892,10 +892,10 @@ export const ChestGame: FC = () => {
 
                 {/* Chest count */}
                 <div className="mb-8">
-                  <label className="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-2 block">
+                  <label className="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-3 block">
                     Number of Chests
                   </label>
-                  <div className="flex gap-2">
+                  <div className="grid grid-cols-4 gap-2">
                     {CHEST_OPTIONS.map((num) => (
                       <button
                         key={num}
@@ -905,21 +905,22 @@ export const ChestGame: FC = () => {
                             setSelectedChest(null);
                           }
                         }}
-                        className="flex-1 py-2 rounded-lg text-sm font-bold transition-all hover:scale-[1.05] active:scale-[0.97]"
+                        className="relative py-3 rounded-xl text-center font-semibold transition-all hover:scale-[1.04] active:scale-[0.97]"
                         style={{
                           background:
                             numChests === num
                               ? "linear-gradient(135deg, var(--purple-deep), var(--purple))"
-                              : "rgba(139, 92, 246, 0.1)",
+                              : "rgba(255,255,255,0.04)",
                           color: numChests === num ? "white" : "var(--purple-light)",
                           border:
                             numChests === num
                               ? "1px solid var(--purple)"
-                              : "1px solid rgba(139, 92, 246, 0.35)",
-                          boxShadow: numChests === num ? "0 0 16px rgba(139, 92, 246, 0.3)" : "none",
+                              : "1px solid rgba(148, 163, 184, 0.1)",
+                          boxShadow: numChests === num ? "0 0 20px rgba(139, 92, 246, 0.25)" : "none",
                         }}
                       >
                         {num}
+                        <span className="block text-[10px] opacity-60 font-normal mt-0.5">chests</span>
                       </button>
                     ))}
                   </div>
