@@ -11,6 +11,7 @@ import {
 } from "@arcium-hq/client";
 import fs from "fs";
 import path from "path";
+import { HELIUS_RPC_URL } from "./config";
 
 async function main() {
   // Load keypair
@@ -29,9 +30,8 @@ async function main() {
   );
   const programId = new anchor.web3.PublicKey(idl.address);
 
-  // Connect — Helius devnet RPC
-  const rpcUrl = "https://devnet.helius-rpc.com/?api-key=0c8dfde7-5739-4d2b-8063-d8e8af79bd0e";
-  const connection = new Connection(rpcUrl, "confirmed");
+  // Connect — Helius devnet RPC (URL set in scripts/config.ts)
+  const connection = new Connection(HELIUS_RPC_URL, "confirmed");
 
   const wallet = new anchor.Wallet(payer);
   const provider = new anchor.AnchorProvider(connection, wallet, {

@@ -40,57 +40,21 @@ export const ChestGame: FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [txSignature, setTxSignature] = useState<string | null>(null);
   const [solBalance, setSolBalance] = useState<number | null>(null);
-  const [isAirdropping, setIsAirdropping] = useState(false);
 
-  // Fetch wallet balance on connect and after airdrop
   useEffect(() => {
-    if (!wallet.publicKey) {
-      setSolBalance(null);
-      return;
-    }
+    if (!wallet.publicKey) { setSolBalance(null); return; }
+    let subscriptionId: number | null = null;
     const fetchBalance = async () => {
-      try {
-        const bal = await connection.getBalance(wallet.publicKey!);
-        setSolBalance(bal / LAMPORTS_PER_SOL);
-      } catch {
-        setSolBalance(null);
-      }
+      const lamports = await connection.getBalance(wallet.publicKey!);
+      setSolBalance(lamports / LAMPORTS_PER_SOL);
     };
     fetchBalance();
-    const id = connection.onAccountChange(wallet.publicKey, (info) => {
+    subscriptionId = connection.onAccountChange(wallet.publicKey, (info) => {
       setSolBalance(info.lamports / LAMPORTS_PER_SOL);
     });
-    return () => { connection.removeAccountChangeListener(id); };
-  }, [wallet.publicKey, connection]);
-
-  const requestAirdrop = useCallback(async () => {
-    if (!wallet.publicKey) return;
-    setIsAirdropping(true);
-    setError(null);
-    try {
-      // Retry logic for Codespaces port forwarding drops
-      let sig: string | null = null;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          sig = await connection.requestAirdrop(wallet.publicKey, 2 * LAMPORTS_PER_SOL);
-          break;
-        } catch (fetchErr) {
-          if (attempt === 3) throw fetchErr;
-          console.warn(`Airdrop attempt ${attempt} failed, retrying...`);
-          await new Promise(r => setTimeout(r, 1500));
-        }
-      }
-      if (sig) {
-        await connection.confirmTransaction(sig, "confirmed");
-      }
-      const bal = await connection.getBalance(wallet.publicKey);
-      setSolBalance(bal / LAMPORTS_PER_SOL);
-    } catch (err) {
-      console.error("Airdrop failed:", err);
-      setError("Airdrop failed. Make sure you're on localnet/devnet.");
-    } finally {
-      setIsAirdropping(false);
-    }
+    return () => {
+      if (subscriptionId !== null) connection.removeAccountChangeListener(subscriptionId);
+    };
   }, [wallet.publicKey, connection]);
 
   const getProvider = useCallback(() => {
@@ -565,22 +529,10 @@ export const ChestGame: FC = () => {
             
             {/* Wallet */}
             <div className="flex items-center gap-3">
-              {wallet.publicKey && solBalance !== null && (
-                <span className="text-gray-400 text-sm">{solBalance.toFixed(2)} SOL</span>
-              )}
-              {wallet.publicKey && (solBalance === null || solBalance < 0.1) && (
-                <button
-                  onClick={requestAirdrop}
-                  disabled={isAirdropping}
-                  className="px-3 py-1.5 text-sm font-medium rounded-lg border transition-all disabled:opacity-50"
-                  style={{
-                    background: 'rgba(34, 197, 94, 0.15)',
-                    borderColor: '#22c55e',
-                    color: '#4ade80',
-                  }}
-                >
-                  {isAirdropping ? "Airdropping..." : "Airdrop 2 SOL"}
-                </button>
+              {solBalance !== null && (
+                <span className="text-gray-300 text-sm font-medium">
+                  {solBalance.toFixed(3)} SOL
+                </span>
               )}
               <WalletMultiButton />
             </div>
@@ -897,9 +849,14 @@ export const ChestGame: FC = () => {
 
                 {/* Transaction Link */}
                 {txSignature && (
-                  <p className="text-gray-500 text-xs mb-8 break-all">
+                  <a
+                    href={`https://explorer.solana.com/tx/${txSignature}?cluster=devnet`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-gray-500 hover:text-gray-300 text-xs mb-8 break-all transition-colors"
+                  >
                     TX: {txSignature.slice(0, 20)}...{txSignature.slice(-20)}
-                  </p>
+                  </a>
                 )}
 
                 {/* Play Again */}

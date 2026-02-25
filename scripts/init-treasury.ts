@@ -4,6 +4,7 @@ import { Keypair, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { VeiledChests } from "../target/types/veiled_chests";
 import fs from "fs";
 import path from "path";
+import { HELIUS_RPC_URL } from "./config";
 
 async function main() {
   // Load keypair
@@ -15,9 +16,8 @@ async function main() {
   const idl = require("../target/idl/veiled_chests.json");
   const PROGRAM_ID = new PublicKey(idl.address);
 
-  // Connect — Helius devnet RPC
-  const rpcUrl = "https://devnet.helius-rpc.com/?api-key=0c8dfde7-5739-4d2b-8063-d8e8af79bd0e";
-  const connection = new anchor.web3.Connection(rpcUrl, "confirmed");
+  // Connect — Helius devnet RPC (URL set in scripts/config.ts)
+  const connection = new anchor.web3.Connection(HELIUS_RPC_URL, "confirmed");
 
   const wallet = new anchor.Wallet(payer);
   const provider = new anchor.AnchorProvider(connection, wallet, {

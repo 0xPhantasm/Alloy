@@ -1,6 +1,7 @@
 .anchor
 .DS_Store
 target
+scripts/config.ts
 **/*.rs.bk
 node_modules
 test-ledger
