@@ -31,7 +31,7 @@ export const ChestGame: FC = () => {
   const { connection } = useConnection();
   const wallet = useWallet();
 
-  const [gameStep, setGameStep] = useState<'hero' | 'stake' | 'select' | 'result'>('hero');
+  const [gameStep, setGameStep] = useState<'hero' | 'stake' | 'select' | 'reveal' | 'result'>('hero');
   const [numChests, setNumChests] = useState(3);
   const [selectedChest, setSelectedChest] = useState<number | null>(null);
   const [betAmount, setBetAmount] = useState(0.1);
@@ -56,6 +56,13 @@ export const ChestGame: FC = () => {
       if (subscriptionId !== null) connection.removeAccountChangeListener(subscriptionId);
     };
   }, [wallet.publicKey, connection]);
+
+  // Auto-advance from reveal animation to result screen
+  useEffect(() => {
+    if (gameStep !== 'reveal') return;
+    const t = setTimeout(() => setGameStep('result'), 3800);
+    return () => clearTimeout(t);
+  }, [gameStep]);
 
   const getProvider = useCallback(() => {
     if (!wallet.publicKey || !wallet.signTransaction || !wallet.signAllTransactions) {
@@ -249,27 +256,47 @@ export const ChestGame: FC = () => {
       
       builtTx.add(priorityFeeIx, computeUnitsIx, txInstr);
       
-      try {
+      // Simulate with auto-retry for transient errors (RPC lag / Arcium slot issues).
+      // 6004 = GameAlreadyActive (game PDA status lag), 6603 = InvalidSlot (Arcium clock lag)
+      const RETRYABLE_CODES = new Set([6004, 6603]);
+      const MAX_SIM_RETRIES = 5;
+      const SIM_RETRY_DELAY = 2500; // ms
+
+      for (let simRetry = 1; simRetry <= MAX_SIM_RETRIES; simRetry++) {
         const simResult = await connection.simulateTransaction(builtTx);
-        console.log("Simulation result:", simResult);
-        if (simResult.value.err) {
-          // If GameAlreadyActive (6004), try to cancel stale game then ask user to retry
-          const errObj = simResult.value.err as { InstructionError?: [number, { Custom: number }] } | null;
-          const customCode = errObj?.InstructionError?.[1] && (errObj.InstructionError[1] as any).Custom;
-          if (customCode === 6004) {
-            const cancelled = await cancelStaleGameIfAny();
-            if (cancelled) {
-              throw new Error("Previous game was still pending; canceled it. Please retry your move.");
-            }
-          }
-          console.error("Simulation error:", simResult.value.err);
-          console.error("Simulation logs:", simResult.value.logs);
-          throw new Error(`Simulation failed: ${JSON.stringify(simResult.value.err)}\nLogs: ${simResult.value.logs?.join('\n')}`);
+        console.log(`Simulation attempt ${simRetry}/${MAX_SIM_RETRIES}:`, simResult.value.err ?? "OK");
+
+        if (!simResult.value.err) {
+          console.log("Simulation passed! Sending transaction...");
+          break;
         }
-        console.log("Simulation passed! Sending transaction...");
-      } catch (simErr) {
-        console.error("Simulation exception:", simErr);
-        throw simErr;
+
+        const errObj = simResult.value.err as { InstructionError?: [number, { Custom: number }] } | null;
+        const customCode = errObj?.InstructionError?.[1] && (errObj.InstructionError[1] as any).Custom;
+
+        if (customCode !== undefined && RETRYABLE_CODES.has(customCode)) {
+          if (simRetry < MAX_SIM_RETRIES) {
+            console.log(`Retryable error ${customCode}, waiting ${SIM_RETRY_DELAY}ms before retry...`);
+            await new Promise(r => setTimeout(r, SIM_RETRY_DELAY));
+
+            // Refresh blockhash so the tx doesn't expire during retries
+            const fresh = await connection.getLatestBlockhash("confirmed");
+            builtTx.recentBlockhash = fresh.blockhash;
+            builtTx.lastValidBlockHeight = fresh.lastValidBlockHeight;
+            continue;
+          }
+          // All retries exhausted — give a friendly message
+          if (customCode === 6004) {
+            throw new Error("Previous game is still settling on-chain. Please wait a few seconds and try again.");
+          } else {
+            throw new Error("Arcium network is briefly busy. Please wait a few seconds and try again.");
+          }
+        }
+
+        // Non-retryable error
+        console.error("Simulation error:", simResult.value.err);
+        console.error("Simulation logs:", simResult.value.logs);
+        throw new Error(`Simulation failed: ${JSON.stringify(simResult.value.err)}\nLogs: ${simResult.value.logs?.join('\n')}`);
       }
       
       // Sign and send with retry mechanism for devnet congestion
@@ -338,24 +365,30 @@ export const ChestGame: FC = () => {
           const status = gameInfo.status as number;
           if (status === 2) { // Completed
             console.log("Game completed! Finding callback transaction...");
-            // Find the callback tx by scanning recent signatures for the game PDA.
-            // We need the tx that contains our program's callback logs (not an Arcium internal tx).
-            const sigs = await connection.getSignaturesForAddress(gamePda, { limit: 10 }, "confirmed");
-            for (const sig of sigs) {
-              if (sig.signature === tx) continue; // skip the player's own tx
-              const candidate = await connection.getTransaction(sig.signature, {
-                commitment: "confirmed",
-                maxSupportedTransactionVersion: 0,
-              });
-              if (candidate?.meta?.logMessages) {
-                // Look for our program's callback by checking for game result log messages
-                const hasCallbackLog = candidate.meta.logMessages.some(
-                  l => l.includes("Player WON") || l.includes("Player lost") || l.includes("Game cancelled")
-                );
-                if (hasCallbackLog) {
-                  callbackTxSig = sig.signature;
-                  console.log("Found callback tx:", sig.signature.slice(0, 20), "with", candidate.meta.logMessages.length, "logs");
-                  break;
+            // Use `until: tx` so we only get signatures that arrived AFTER the current
+            // play tx. Without this, we can accidentally match a callback from a
+            // previous game (same PDA is reused each round) and show the wrong result.
+            // Retry the scan because the RPC signature index often lags behind account state.
+            for (let scanAttempt = 0; scanAttempt < 5 && !callbackTxSig; scanAttempt++) {
+              if (scanAttempt > 0) {
+                console.log(`Callback tx not indexed yet, retrying scan (${scanAttempt + 1}/5)...`);
+                await new Promise(r => setTimeout(r, 2000));
+              }
+              const sigs = await connection.getSignaturesForAddress(gamePda, { limit: 10, until: tx }, "confirmed");
+              for (const sig of sigs) {
+                const candidate = await connection.getTransaction(sig.signature, {
+                  commitment: "confirmed",
+                  maxSupportedTransactionVersion: 0,
+                });
+                if (candidate?.meta?.logMessages) {
+                  const hasCallbackLog = candidate.meta.logMessages.some(
+                    l => l.includes("Player WON") || l.includes("Player lost") || l.includes("Game cancelled")
+                  );
+                  if (hasCallbackLog) {
+                    callbackTxSig = sig.signature;
+                    console.log("Found callback tx:", sig.signature.slice(0, 20), "with", candidate.meta.logMessages.length, "logs");
+                    break;
+                  }
                 }
               }
             }
@@ -424,56 +457,62 @@ export const ChestGame: FC = () => {
           }
 
           console.log("Decoded events:", events);
-          const resultEvent = events.find(e => e.name === "gameResultEvent");
+          const resultEvent = events.find(
+            e => e.name === "gameResultEvent" || e.name === "GameResultEvent"
+          );
 
           if (resultEvent) {
             const data = resultEvent.data as {
               playerWon: boolean;
               winningChest: number;
-              payout: { toNumber?: () => number };
-              betAmount: { toNumber?: () => number };
+              payout: { toNumber?: () => number } | number;
             };
-            const payoutLamports = typeof data.payout === 'object' && data.payout?.toNumber
-              ? data.payout.toNumber()
-              : Number(data.payout);
+
+            const playerWon = data.playerWon;
+            const winningChestRaw = Number(data.winningChest ?? 0);
+
+            const payoutLamports =
+              typeof data.payout === 'object' && data.payout !== null && typeof (data.payout as { toNumber?: () => number }).toNumber === 'function'
+                ? (data.payout as { toNumber: () => number }).toNumber()
+                : Number(data.payout);
 
             // Clamp winningChest to valid range (safety for MPC RNG edge cases)
-            const safeWinningChest = data.winningChest < numChests ? data.winningChest : data.winningChest % numChests;
+            const safeWinningChest = winningChestRaw < numChests ? winningChestRaw : winningChestRaw % numChests;
 
             setGameResult({
-              playerWon: data.playerWon,
+              playerWon,
               winningChest: safeWinningChest,
               payout: payoutLamports / LAMPORTS_PER_SOL,
             });
-            setGameStep('result');
+            setGameStep('reveal');
           } else {
             // Fallback: try regex on logs
             console.warn("No GameResultEvent found in logs, falling back to regex");
             const logs = txDetails.meta.logMessages.join("\n");
             const wonMatch = logs.match(/Player (WON|lost)/i);
-            const chestMatch = logs.match(/Chest (\d+)|Winning chest was (\d+)/);
-            
+            const chestMatch = logs.match(/Winning chest was (\d+)|Chest (\d+) was correct/);
+
             const playerWon = wonMatch?.[1]?.toUpperCase() === "WON";
             const rawChest = parseInt(chestMatch?.[1] || chestMatch?.[2] || "0");
             const winningChest = rawChest < numChests ? rawChest : rawChest % numChests;
             const payout = playerWon ? betAmount * numChests : 0;
 
             setGameResult({ playerWon, winningChest, payout });
-            setGameStep('result');
+            setGameStep('reveal');
           }
         } else {
           console.warn("No logs found in callback tx");
           setGameResult({ playerWon: false, winningChest: 0, payout: 0 });
-          setGameStep('result');
+          setGameStep('reveal');
         }
       } else {
-        // Callback tx not found but game completed — infer result from balance change
-        setGameResult({
-          playerWon: false,
-          winningChest: 0,
-          payout: 0,
-        });
-        setGameStep('result');
+        // Callback tx not found but game completed — cannot determine result reliably.
+        // Don't fake a loss; tell the user to check on-chain.
+        throw new Error(
+          "Game completed but could not retrieve the result transaction. " +
+          "Check your wallet balance — if it increased, you won! " +
+          "You can also verify on Solana Explorer."
+        );
       }
     } catch (err: unknown) {
       console.error("Game error:", err);
@@ -498,382 +537,796 @@ export const ChestGame: FC = () => {
     setTxSignature(null);
   };
 
-  // Stripped UI - ready for new design
-  return (
-    <div className="min-h-screen bg-black relative overflow-hidden">
-      {/* Background image - changes based on game step */}
-      <div 
-        className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-500"
-        style={{ backgroundImage: gameStep === 'select' ? "url('/bg2.png')" : "url('/bg.png')" }}
-      />
-      
-      {/* Border frame */}
-      <div className="absolute inset-4 border-2 border-gray-700 rounded-3xl pointer-events-none" />
-      
-      {/* Content */}
-      <div className="relative z-10">
-        {/* Header/Navigation */}
-        <header className="mx-8 mt-6">
-          <div className="flex items-center justify-between px-8 py-4 bg-gray-900/80 backdrop-blur-sm rounded-xl border border-gray-700/50">
-            {/* Logo */}
-            <div className="text-2xl font-bold" style={{ color: '#6b21a8' }}>
-              VeiledChests
+  // ─── UI ───────────────────────────────────────────────────────────────────
+
+  /** Shared step-progress indicator */
+  const StepBar = ({ active }: { active: 0 | 1 | 2 }) => (
+    <div className="flex items-center justify-center gap-1.5 mb-8">
+      {(['Stake', 'Select', 'Reveal'] as const).map((label, i) => {
+        const done    = i < active;
+        const current = i === active;
+        return (
+          <div key={label} className="flex items-center gap-1.5">
+            <div
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all"
+              style={{
+                background: current ? 'rgba(168,85,247,0.18)' : done ? 'rgba(168,85,247,0.08)' : 'transparent',
+                border: `1px solid ${current ? 'rgba(168,85,247,0.45)' : done ? 'rgba(168,85,247,0.25)' : 'rgba(255,255,255,0.05)'}`,
+                color: current ? '#c084fc' : done ? '#7c3aed' : '#374151',
+              }}
+            >
+              <span
+                className="w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold"
+                style={{
+                  background: current ? '#7c3aed' : done ? '#4c1d95' : '#111827',
+                  color: current ? '#fff' : done ? '#a78bfa' : '#374151',
+                }}
+              >
+                {done ? '✓' : i + 1}
+              </span>
+              {label}
             </div>
-            
-            {/* Center Navigation */}
-            <nav className="flex gap-10 text-gray-300 text-base">
-              <a href="#game" className="hover:text-white transition-colors">Game</a>
-              <a href="#about" className="hover:text-white transition-colors">About</a>
-              <a href="#how-to-play" className="hover:text-white transition-colors">How to Play</a>
+            {i < 2 && (
+              <div
+                className="w-6 h-px"
+                style={{ background: i < active ? 'rgba(124,58,237,0.5)' : 'rgba(255,255,255,0.06)' }}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen relative overflow-hidden" style={{ background: '#050810' }}>
+      {/* ── Layered background ── */}
+      <div
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-1000"
+        style={{
+          backgroundImage: gameStep === 'select' ? "url('/bg2.png')" : "url('/bg.png')",
+          opacity: 0.35,
+        }}
+      />
+      {/* dark vignette */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(ellipse 80% 60% at 50% 0%, rgba(88,28,135,0.22) 0%, rgba(5,8,16,0.92) 70%)',
+        }}
+      />
+      {/* subtle grid */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-[0.04]"
+        style={{
+          backgroundImage:
+            'linear-gradient(rgba(168,85,247,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(168,85,247,0.6) 1px, transparent 1px)',
+          backgroundSize: '48px 48px',
+        }}
+      />
+
+      {/* ── Page shell ── */}
+      <div className="relative z-10 flex flex-col min-h-screen">
+
+        {/* ════════════════════ HEADER ════════════════════ */}
+        <header className="flex-shrink-0 px-5 pt-5">
+          <div
+            className="max-w-6xl mx-auto flex items-center justify-between px-5 py-3 rounded-xl"
+            style={{
+              background: 'rgba(8,10,22,0.82)',
+              backdropFilter: 'blur(14px)',
+              border: '1px solid rgba(168,85,247,0.18)',
+            }}
+          >
+            {/* Logo */}
+            <div className="flex items-center gap-2.5">
+              <div
+                className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                style={{ background: 'rgba(88,28,135,0.55)', border: '1px solid rgba(168,85,247,0.35)' }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                  <path d="M3 7h18v12H3z" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M3 7l9-4 9 4" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M9 11h6" stroke="#a855f7" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+              </div>
+              <span className="text-base font-bold tracking-wide" style={{ color: '#a855f7' }}>
+                VeiledChests
+              </span>
+            </div>
+
+            {/* Nav */}
+            <nav className="hidden md:flex gap-7 text-sm font-medium">
+              {['Game', 'About', 'How to Play'].map((item) => (
+                <a
+                  key={item}
+                  href="#"
+                  className="text-gray-500 hover:text-purple-300 transition-colors duration-200"
+                >
+                  {item}
+                </a>
+              ))}
             </nav>
-            
-            {/* Wallet */}
-            <div className="flex items-center gap-3">
+
+            {/* Wallet area */}
+            <div className="flex items-center gap-2.5">
               {solBalance !== null && (
-                <span className="text-gray-300 text-sm font-medium">
+                <div
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                  style={{
+                    background: 'rgba(168,85,247,0.1)',
+                    border: '1px solid rgba(168,85,247,0.2)',
+                    color: '#c084fc',
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="9" stroke="#c084fc" strokeWidth="2"/>
+                    <path d="M12 7v5l3 3" stroke="#c084fc" strokeWidth="2" strokeLinecap="round"/>
+                  </svg>
                   {solBalance.toFixed(3)} SOL
-                </span>
+                </div>
               )}
               <WalletMultiButton />
             </div>
           </div>
         </header>
 
-        {/* Hero Section */}
+        {/* ════════════════════ HERO ════════════════════ */}
         {gameStep === 'hero' && (
-          <div className="flex flex-col items-center justify-center min-h-[calc(100vh-120px)] px-8">
-            <div className="text-center max-w-4xl">
-              <h1 className="text-6xl font-bold text-white mb-8 tracking-wider" style={{ fontFamily: 'monospace' }}>
-                MYSTERIOUS CHESTS: A<br />
-                CHOICE BEFORE THE UNVEIL
-              </h1>
-              
-              <p className="text-gray-400 text-lg mb-12 max-w-2xl mx-auto">
-                Provably fair game where the player's<br />
-                choice and winning chest is encrypted<br />
-                until reveal
-              </p>
-              
-              <button 
-                onClick={() => setGameStep('stake')}
-                className="relative px-16 py-4 text-xl font-bold transition-all hover:scale-105 border-2 rounded-lg"
+          <main className="flex-1 flex flex-col items-center justify-center px-6 py-16">
+            <div className="text-center max-w-2xl mx-auto anim-fade-up">
+
+              {/* Arcium badge */}
+              <div
+                className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-8 text-xs font-semibold tracking-widest uppercase"
                 style={{
-                  background: 'rgba(59, 7, 100, 0.6)',
-                  borderColor: '#6b21a8',
-                  color: '#a855f7',
+                  background: 'rgba(168,85,247,0.13)',
+                  border: '1px solid rgba(168,85,247,0.3)',
+                  color: '#c084fc',
                 }}
               >
-                PLAY GAME
-              </button>
-            </div>
-
-            {/* Scroll indicator */}
-            <div className="absolute bottom-12 left-1/2 transform -translate-x-1/2 flex flex-col items-center gap-2 text-gray-400">
-              <svg className="w-6 h-6 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-              <span className="text-sm tracking-wider">SCROLL DOWN</span>
-            </div>
-          </div>
-        )}
-
-        {/* Stake Selection Section */}
-        {gameStep === 'stake' && (
-          <section className="min-h-[calc(100vh-120px)] flex items-center justify-center px-8">
-            {/* Bordered Card */}
-            <div 
-              className="relative p-1 rounded-lg"
-              style={{
-                background: 'linear-gradient(135deg, #22d3ee 0%, #0891b2 50%, #22d3ee 100%)',
-              }}
-            >
-              {/* Inner card */}
-              <div 
-                className="px-16 py-12 rounded-lg"
-                style={{
-                  background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(5, 15, 25, 0.98) 100%)',
-                  minWidth: '500px',
-                }}
-              >
-                {/* Title */}
-                <h2 
-                  className="text-4xl font-bold mb-10 tracking-wide"
-                  style={{ 
-                    background: 'linear-gradient(90deg, #22c55e 0%, #4ade80 100%)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                  }}
-                >
-                  CHOOSE YOUR STAKE
-                </h2>
-
-                {/* Bet Amount Section */}
-                <div className="mb-8">
-                  <label className="text-gray-400 text-sm mb-4 block">Bet Amount (SOL)</label>
-                  <div className="flex gap-3">
-                    {BET_OPTIONS.map((amount) => (
-                      <button
-                        key={amount}
-                        onClick={() => setBetAmount(amount)}
-                        className="px-5 py-2.5 rounded-md font-medium transition-all border-2"
-                        style={{
-                          background: betAmount === amount 
-                            ? 'rgba(88, 28, 135, 0.8)' 
-                            : 'rgba(59, 7, 100, 0.4)',
-                          borderColor: betAmount === amount ? '#a855f7' : '#6b21a8',
-                          color: betAmount === amount ? '#e9d5ff' : '#a855f7',
-                        }}
-                      >
-                        {amount}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Number of Chests Section */}
-                <div className="mb-10">
-                  <label className="text-gray-400 text-sm mb-4 block">No of Chests</label>
-                  <div className="relative inline-block">
-                    <select
-                      value={numChests}
-                      onChange={(e) => {
-                        const newNum = parseInt(e.target.value);
-                        setNumChests(newNum);
-                        if (selectedChest !== null && selectedChest >= newNum) {
-                          setSelectedChest(null);
-                        }
-                      }}
-                      className="appearance-none px-6 py-2.5 pr-10 rounded-md font-medium cursor-pointer border-2"
-                      style={{
-                        background: 'rgba(59, 7, 100, 0.4)',
-                        borderColor: '#6b21a8',
-                        color: '#a855f7',
-                      }}
-                    >
-                      {CHEST_OPTIONS.map((num) => (
-                        <option key={num} value={num} className="bg-gray-900 text-white">
-                          {num}
-                        </option>
-                      ))}
-                    </select>
-                    <svg 
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 pointer-events-none" 
-                      fill="none" 
-                      stroke="#a855f7" 
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </div>
-                </div>
-
-                {/* Next Button */}
-                <button 
-                  onClick={() => setGameStep('select')}
-                  className="w-full py-3 text-lg font-bold transition-all hover:scale-[1.02] border-2 rounded-lg"
-                  style={{
-                    background: 'rgba(59, 7, 100, 0.6)',
-                    borderColor: '#6b21a8',
-                    color: '#a855f7',
-                  }}
-                >
-                  NEXT
-                </button>
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                Powered by Arcium MPC · Solana
               </div>
-            </div>
-          </section>
-        )}
 
-        {/* Chest Selection Section */}
-        {gameStep === 'select' && (
-          <section className="min-h-[calc(100vh-120px)] flex flex-col items-center justify-center px-8">
-            {/* Title */}
-            <h2 
-              className="text-4xl font-bold mb-12 tracking-wide text-center"
-              style={{ 
-                background: 'linear-gradient(90deg, #f59e0b 0%, #fbbf24 100%)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-              }}
-            >
-              SELECT YOUR CHEST
-            </h2>
+              {/* Headline */}
+              <h1 className="text-6xl md:text-7xl font-black mb-6 leading-[1.05] tracking-tight">
+                <span className="text-white">CHOOSE</span>
+                <br />
+                <span className="shimmer-text">YOUR FATE</span>
+              </h1>
 
-            {/* Chests Grid */}
-            <div className="flex gap-8 mb-12 flex-wrap justify-center">
-              {Array.from({ length: numChests }, (_, i) => (
+              <p className="text-gray-400 text-base md:text-lg mb-10 leading-relaxed max-w-lg mx-auto">
+                One chest hides the reward. Your pick is{' '}
+                <span className="text-purple-300 font-semibold">encrypted by Arcium's MPC network</span>
+                {' '}— nobody can see your choice until the reveal.
+              </p>
+
+              {/* CTA */}
+              {!wallet.publicKey ? (
+                <div className="flex flex-col items-center gap-3">
+                  <p className="text-gray-600 text-sm">Connect your wallet to start playing</p>
+                  <WalletMultiButton />
+                </div>
+              ) : (
                 <button
-                  key={i}
-                  onClick={() => setSelectedChest(i)}
-                  disabled={isPlaying}
-                  className={`relative transition-all duration-300 transform hover:scale-110 ${
-                    selectedChest === i ? 'scale-110' : ''
-                  } ${isPlaying ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                  onClick={() => setGameStep('stake')}
+                  className="anim-glow-pulse relative px-12 py-4 text-base font-bold rounded-xl transition-all duration-300 hover:scale-105 active:scale-95"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(88,28,135,0.9) 0%, rgba(107,33,168,0.9) 100%)',
+                    border: '2px solid rgba(168,85,247,0.55)',
+                    color: '#ede9fe',
+                  }}
                 >
-                  {/* Chest Image */}
-                  <img 
-                    src="/chest.png" 
-                    alt={`Chest ${i + 1}`}
-                    className="w-40 h-40 object-contain"
-                    style={{
-                      filter: selectedChest === i 
-                        ? 'drop-shadow(0 0 30px rgba(251, 191, 36, 0.8))' 
-                        : 'drop-shadow(0 0 10px rgba(251, 191, 36, 0.3))',
-                    }}
-                  />
-                  {/* Chest Number */}
-                  <div 
-                    className={`absolute -bottom-2 left-1/2 transform -translate-x-1/2 px-4 py-1 rounded-full text-sm font-bold ${
-                      selectedChest === i 
-                        ? 'bg-yellow-500 text-black' 
-                        : 'bg-gray-800 text-gray-300'
-                    }`}
-                  >
-                    #{i + 1}
-                  </div>
+                  Open the Veil &nbsp;→
                 </button>
+              )}
+            </div>
+
+            {/* Decorative floating chests */}
+            <div className="mt-16 flex items-end justify-center gap-8 select-none pointer-events-none">
+              {[80, 116, 80].map((size, i) => (
+                <img
+                  key={i}
+                  src="/chest.png"
+                  alt=""
+                  className="object-contain anim-float"
+                  style={{
+                    width: size,
+                    height: size,
+                    opacity: i === 1 ? 0.35 : 0.18,
+                    filter: 'drop-shadow(0 0 16px rgba(168,85,247,0.5))',
+                    animationDuration: `${3 + i * 0.5}s`,
+                    animationDelay: `${i * 0.4}s`,
+                  }}
+                />
               ))}
             </div>
 
-            {/* Selected Info */}
-            {selectedChest !== null && (
-              <p className="text-gray-400 text-lg mb-8">
-                You selected <span className="text-yellow-400 font-bold">Chest #{selectedChest + 1}</span>
+            {/* Footer */}
+            <footer className="absolute bottom-5 w-full text-center">
+              <p className="text-gray-700 text-xs">
+                Built by{' '}
+                <a
+                  href="https://x.com/EtherPhantasm"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-500 hover:text-purple-400 transition-colors"
+                >
+                  EtherPhantasm
+                </a>
               </p>
-            )}
-
-            {/* Confirm Button */}
-            <button 
-              onClick={playGame}
-              disabled={selectedChest === null || isPlaying}
-              className="px-16 py-4 text-xl font-bold transition-all hover:scale-105 border-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                background: 'rgba(59, 7, 100, 0.6)',
-                borderColor: '#6b21a8',
-                color: '#a855f7',
-              }}
-            >
-              {isPlaying ? (
-                <span className="flex items-center gap-3">
-                  <svg className="animate-spin h-6 w-6" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  REVEALING...
-                </span>
-              ) : (
-                'CONFIRM SELECTION'
-              )}
-            </button>
-
-            {/* Back Button */}
-            <button 
-              onClick={() => {
-                setSelectedChest(null);
-                setGameStep('stake');
-              }}
-              className="mt-4 text-gray-500 hover:text-gray-300 transition-colors"
-            >
-              ← Back to stake selection
-            </button>
-
-            {/* Error Display */}
-            {error && (
-              <div className="mt-6 bg-red-900/50 border border-red-500 rounded-lg p-4 max-w-md">
-                <p className="text-red-300 text-center">{error}</p>
-              </div>
-            )}
-          </section>
+            </footer>
+          </main>
         )}
 
-        {/* Result Section */}
-        {gameStep === 'result' && gameResult && (
-          <section className="min-h-[calc(100vh-120px)] flex flex-col items-center justify-center px-8">
-            <div
-              className="relative p-1 rounded-lg"
-              style={{
-                background: gameResult.playerWon
-                  ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 50%, #22c55e 100%)'
-                  : 'linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #ef4444 100%)',
-              }}
-            >
+        {/* ════════════════════ STAKE ════════════════════ */}
+        {gameStep === 'stake' && (
+          <main className="flex-1 flex items-center justify-center px-6 py-12">
+            <div className="w-full max-w-md anim-reveal">
+              <StepBar active={0} />
+
               <div
-                className="px-16 py-12 rounded-lg text-center"
+                className="rounded-2xl p-7"
                 style={{
-                  background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(5, 15, 25, 0.98) 100%)',
-                  minWidth: '500px',
+                  background: 'rgba(8,10,24,0.92)',
+                  border: '1px solid rgba(168,85,247,0.22)',
+                  backdropFilter: 'blur(18px)',
+                  boxShadow: '0 0 60px rgba(88,28,135,0.18), 0 24px 48px rgba(0,0,0,0.55)',
                 }}
               >
-                {/* Result Icon */}
-                <div className="text-8xl mb-6">
-                  {gameResult.playerWon ? '🎉' : '💀'}
+                <h2 className="text-2xl font-black text-white mb-1">Set Your Stake</h2>
+                <p className="text-gray-500 text-sm mb-7">
+                  Choose how much to bet and how many chests to play
+                </p>
+
+                {/* Bet amount */}
+                <div className="mb-6">
+                  <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-3 block">
+                    Bet Amount (SOL)
+                  </label>
+                  <div className="grid grid-cols-5 gap-2">
+                    {BET_OPTIONS.map((amount) => {
+                      const active = betAmount === amount;
+                      return (
+                        <button
+                          key={amount}
+                          onClick={() => setBetAmount(amount)}
+                          className="py-3 rounded-xl text-sm font-bold transition-all duration-200"
+                          style={{
+                            background: active ? 'rgba(88,28,135,0.85)' : 'rgba(88,28,135,0.12)',
+                            border: `1px solid ${active ? 'rgba(168,85,247,0.75)' : 'rgba(88,28,135,0.28)'}`,
+                            color: active ? '#ede9fe' : '#6b21a8',
+                            transform: active ? 'scale(1.06)' : 'scale(1)',
+                            boxShadow: active ? '0 0 18px rgba(168,85,247,0.22)' : 'none',
+                          }}
+                        >
+                          {amount}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                {/* Result Title */}
-                <h2
-                  className="text-5xl font-bold mb-4 tracking-wide"
+                {/* Chest count */}
+                <div className="mb-7">
+                  <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-3 block">
+                    Number of Chests
+                  </label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {CHEST_OPTIONS.map((num) => {
+                      const active = numChests === num;
+                      return (
+                        <button
+                          key={num}
+                          onClick={() => {
+                            setNumChests(num);
+                            if (selectedChest !== null && selectedChest >= num) setSelectedChest(null);
+                          }}
+                          className="py-3 rounded-xl font-black transition-all duration-200 flex flex-col items-center gap-0.5"
+                          style={{
+                            background: active ? 'rgba(34,197,94,0.14)' : 'rgba(34,197,94,0.05)',
+                            border: `1px solid ${active ? 'rgba(34,197,94,0.55)' : 'rgba(34,197,94,0.12)'}`,
+                            color: active ? '#4ade80' : '#14532d',
+                            transform: active ? 'scale(1.06)' : 'scale(1)',
+                            boxShadow: active ? '0 0 16px rgba(34,197,94,0.14)' : 'none',
+                          }}
+                        >
+                          <span className="text-xl">{num}</span>
+                          <span className="text-[9px] font-semibold opacity-60">CHESTS</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Odds summary */}
+                <div
+                  className="flex items-center justify-between px-4 py-3 rounded-xl mb-6 text-sm"
                   style={{
-                    background: gameResult.playerWon
-                      ? 'linear-gradient(90deg, #22c55e 0%, #4ade80 100%)'
-                      : 'linear-gradient(90deg, #ef4444 0%, #f87171 100%)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
+                    background: 'rgba(168,85,247,0.05)',
+                    border: '1px solid rgba(168,85,247,0.1)',
                   }}
                 >
-                  {gameResult.playerWon ? 'YOU WON!' : 'YOU LOST'}
-                </h2>
+                  <span className="text-gray-500">
+                    Win chance:{' '}
+                    <span className="text-gray-300 font-semibold">1 in {numChests}</span>
+                  </span>
+                  <span className="text-gray-500">
+                    Payout:{' '}
+                    <span className="text-green-400 font-semibold">
+                      +{(betAmount * numChests).toFixed(2)} SOL
+                    </span>
+                  </span>
+                </div>
 
-                {/* Winning Chest */}
-                <p className="text-gray-400 text-lg mb-2">
-                  The winning chest was{' '}
-                  <span className="text-yellow-400 font-bold">#{gameResult.winningChest + 1}</span>
-                </p>
-
-                {/* Your Choice */}
-                <p className="text-gray-500 text-base mb-6">
-                  You chose{' '}
-                  <span className="text-gray-300 font-bold">Chest #{(selectedChest ?? 0) + 1}</span>
-                </p>
-
-                {/* Payout */}
-                {gameResult.playerWon && (
-                  <p className="text-green-400 text-2xl font-bold mb-8">
-                    +{gameResult.payout.toFixed(2)} SOL
-                  </p>
-                )}
-                {!gameResult.playerWon && (
-                  <p className="text-red-400 text-2xl font-bold mb-8">
-                    -{betAmount.toFixed(2)} SOL
-                  </p>
-                )}
-
-                {/* Transaction Link */}
-                {txSignature && (
-                  <a
-                    href={`https://explorer.solana.com/tx/${txSignature}?cluster=devnet`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block text-gray-500 hover:text-gray-300 text-xs mb-8 break-all transition-colors"
-                  >
-                    TX: {txSignature.slice(0, 20)}...{txSignature.slice(-20)}
-                  </a>
-                )}
-
-                {/* Play Again */}
+                {/* Next */}
                 <button
-                  onClick={resetGame}
-                  className="w-full py-3 text-lg font-bold transition-all hover:scale-[1.02] border-2 rounded-lg"
+                  onClick={() => setGameStep('select')}
+                  className="w-full py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                   style={{
-                    background: 'rgba(59, 7, 100, 0.6)',
-                    borderColor: '#6b21a8',
-                    color: '#a855f7',
+                    background: 'linear-gradient(135deg, rgba(88,28,135,0.9), rgba(107,33,168,0.9))',
+                    border: '1px solid rgba(168,85,247,0.45)',
+                    color: '#ede9fe',
+                    boxShadow: '0 0 22px rgba(88,28,135,0.28)',
                   }}
                 >
-                  PLAY AGAIN
+                  Choose a Chest →
+                </button>
+
+                <button
+                  onClick={() => setGameStep('hero')}
+                  className="w-full py-2 mt-3 text-gray-600 hover:text-gray-400 text-xs transition-colors"
+                >
+                  ← Back
                 </button>
               </div>
             </div>
-          </section>
+          </main>
+        )}
+
+        {/* ════════════════════ CHEST SELECT ════════════════════ */}
+        {gameStep === 'select' && (
+          <main className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+            <StepBar active={1} />
+
+            {/* Headline */}
+            <div className="text-center mb-10">
+              <h2 className="text-3xl font-black text-white mb-2">
+                Which chest holds the treasure?
+              </h2>
+              <p className="text-gray-500 text-sm">
+                Betting{' '}
+                <span className="text-purple-300 font-semibold">{betAmount} SOL</span>
+                {' '}across{' '}
+                <span className="text-green-400 font-semibold">{numChests} chests</span>
+              </p>
+            </div>
+
+            {/* Chests row */}
+            <div className="flex gap-5 mb-8 flex-wrap justify-center">
+              {Array.from({ length: numChests }, (_, i) => {
+                const chosen = selectedChest === i;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => !isPlaying && setSelectedChest(i)}
+                    disabled={isPlaying}
+                    className={`flex flex-col items-center group transition-all duration-300 ${
+                      isPlaying ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                    }`}
+                  >
+                    <div
+                      className="relative rounded-2xl p-5 transition-all duration-300"
+                      style={{
+                        background: chosen
+                          ? 'rgba(245,158,11,0.14)'
+                          : 'rgba(8,10,24,0.7)',
+                        border: `2px solid ${chosen ? 'rgba(245,158,11,0.65)' : 'rgba(168,85,247,0.14)'}`,
+                        boxShadow: chosen
+                          ? '0 0 44px rgba(245,158,11,0.28), 0 0 80px rgba(245,158,11,0.1)'
+                          : '0 0 16px rgba(0,0,0,0.3)',
+                        transform: chosen
+                          ? 'translateY(-10px) scale(1.07)'
+                          : 'translateY(0) scale(1)',
+                      }}
+                    >
+                      <img
+                        src="/chest.png"
+                        alt={`Chest ${i + 1}`}
+                        className={`w-28 h-28 object-contain ${chosen ? 'anim-float-slow' : 'anim-float'}`}
+                        style={{
+                          filter: chosen
+                            ? 'drop-shadow(0 0 22px rgba(245,158,11,0.85)) brightness(1.12)'
+                            : 'drop-shadow(0 0 8px rgba(168,85,247,0.28))',
+                          animationDuration: `${2.8 + i * 0.35}s`,
+                        }}
+                      />
+
+                      {/* Checkmark badge */}
+                      {chosen && (
+                        <span
+                          className="absolute top-2 right-2 w-5 h-5 rounded-full bg-yellow-400 flex items-center justify-center"
+                          style={{ boxShadow: '0 0 8px rgba(245,158,11,0.6)' }}
+                        >
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                            <path
+                              d="M5 13l4 4L19 7"
+                              stroke="#000"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                      )}
+
+                      {/* Hover ring (non-selected) */}
+                      {!chosen && !isPlaying && (
+                        <div
+                          className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+                          style={{ border: '2px solid rgba(168,85,247,0.4)' }}
+                        />
+                      )}
+                    </div>
+
+                    {/* Label */}
+                    <div
+                      className="mt-2.5 px-4 py-1 rounded-full text-xs font-bold transition-all duration-300"
+                      style={{
+                        background: chosen ? 'rgba(245,158,11,0.18)' : 'rgba(88,28,135,0.18)',
+                        color: chosen ? '#fbbf24' : '#6b21a8',
+                        border: `1px solid ${chosen ? 'rgba(245,158,11,0.35)' : 'rgba(88,28,135,0.28)'}`,
+                      }}
+                    >
+                      #{i + 1}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Selection hint */}
+            <div className="h-7 flex items-center justify-center mb-6">
+              {selectedChest !== null ? (
+                <p className="text-gray-300 text-sm anim-fade-up">
+                  Chest{' '}
+                  <span className="text-yellow-400 font-bold">#{selectedChest + 1}</span>
+                  {' '}selected — potential win{' '}
+                  <span className="text-green-400 font-bold">
+                    +{(betAmount * numChests).toFixed(2)} SOL
+                  </span>
+                </p>
+              ) : (
+                <p className="text-gray-600 text-sm">Click a chest to make your choice</p>
+              )}
+            </div>
+
+            {/* MPC loading state */}
+            {isPlaying && (
+              <div className="mb-7 flex flex-col items-center gap-4">
+                <div className="relative w-14 h-14">
+                  <div
+                    className="absolute inset-0 rounded-full border-2"
+                    style={{ borderColor: 'rgba(88,28,135,0.4)' }}
+                  />
+                  <div
+                    className="absolute inset-0 rounded-full border-2 border-transparent border-t-purple-400"
+                    style={{ animation: 'spin-cw 1s linear infinite' }}
+                  />
+                  <div
+                    className="absolute inset-2 rounded-full border-2 border-transparent border-t-yellow-400"
+                    style={{ animation: 'spin-ccw 1.6s linear infinite' }}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                  </div>
+                </div>
+                <div className="text-center">
+                  <p className="text-purple-300 text-sm font-semibold">
+                    Arcium MPC computing result…
+                  </p>
+                  <p className="text-gray-600 text-xs mt-1">
+                    Your encrypted choice is being processed on-chain
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Error */}
+            {error && !isPlaying && (
+              <div
+                className="mb-6 px-5 py-3 rounded-xl text-sm max-w-sm text-center"
+                style={{
+                  background: 'rgba(239,68,68,0.09)',
+                  border: '1px solid rgba(239,68,68,0.28)',
+                  color: '#fca5a5',
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            {/* Confirm */}
+            <button
+              onClick={playGame}
+              disabled={selectedChest === null || isPlaying}
+              className="px-14 py-4 rounded-xl font-bold text-sm transition-all duration-300 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              style={{
+                background:
+                  selectedChest !== null && !isPlaying
+                    ? 'linear-gradient(135deg, rgba(180,90,0,0.9), rgba(217,119,6,0.95))'
+                    : 'rgba(88,28,135,0.28)',
+                border: `2px solid ${
+                  selectedChest !== null && !isPlaying
+                    ? 'rgba(245,158,11,0.65)'
+                    : 'rgba(88,28,135,0.28)'
+                }`,
+                color: selectedChest !== null && !isPlaying ? '#fff7ed' : '#6b21a8',
+                boxShadow:
+                  selectedChest !== null && !isPlaying
+                    ? '0 0 28px rgba(245,158,11,0.28)'
+                    : 'none',
+              }}
+            >
+              {isPlaying ? 'Processing…' : 'Reveal the Truth'}
+            </button>
+
+            <button
+              onClick={() => { setSelectedChest(null); setGameStep('stake'); }}
+              disabled={isPlaying}
+              className="mt-3 text-gray-600 hover:text-gray-400 text-xs transition-colors disabled:opacity-30"
+            >
+              ← Adjust stake
+            </button>
+          </main>
+        )}
+
+        {/* ════════════════════ REVEAL ════════════════════ */}
+        {gameStep === 'reveal' && gameResult && (
+          <main className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+            {/* Headline */}
+            <div className="text-center mb-10">
+              <h2 className="text-3xl font-black mb-2 shimmer-text">The Veil Lifts…</h2>
+              <p className="text-gray-600 text-sm">Revealing the winning chest</p>
+            </div>
+
+            {/* Chest row */}
+            <div className="flex gap-5 mb-10 flex-wrap justify-center">
+              {Array.from({ length: numChests }, (_, i) => {
+                const isWinner = i === gameResult.winningChest;
+                return (
+                  <div key={i} className="relative flex flex-col items-center">
+                    {/* Burst ring — only on winner */}
+                    {isWinner && (
+                      <div
+                        className="absolute anim-burst pointer-events-none"
+                        style={{
+                          width: '112px',
+                          height: '112px',
+                          top: 0,
+                          borderRadius: '50%',
+                          background: 'radial-gradient(circle, rgba(245,158,11,0.55), transparent 70%)',
+                        }}
+                      />
+                    )}
+
+                    {/* Chest image */}
+                    <img
+                      src="/chest.png"
+                      alt={`Chest ${i + 1}`}
+                      className={`w-28 h-28 object-contain ${isWinner ? 'anim-chest-win' : 'anim-chest-lose'}`}
+                      style={{
+                        filter: isWinner
+                          ? 'drop-shadow(0 0 10px rgba(245,158,11,0.5))'
+                          : 'drop-shadow(0 0 6px rgba(168,85,247,0.2))',
+                      }}
+                    />
+
+                    {/* "You" badge on player's choice */}
+                    {i === selectedChest && (
+                      <span
+                        className="absolute top-1 right-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                        style={{
+                          background: 'rgba(245,158,11,0.25)',
+                          color: '#fbbf24',
+                          border: '1px solid rgba(245,158,11,0.4)',
+                        }}
+                      >
+                        You
+                      </span>
+                    )}
+
+                    {/* Label fades in at 2.5s */}
+                    <div
+                      className="mt-2.5 text-xs font-bold anim-reveal-label"
+                      style={{ color: isWinner ? '#fbbf24' : '#4b5563' }}
+                    >
+                      {isWinner ? '★ Winner' : `#${i + 1}`}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Big result text — fades in at 2.6s */}
+            <div
+              className="anim-reveal-label text-center mb-8"
+              style={{ animationDelay: '2.6s' }}
+            >
+              <p
+                className="text-4xl font-black"
+                style={{
+                  color: gameResult.playerWon ? '#4ade80' : '#f87171',
+                  textShadow: `0 0 32px ${gameResult.playerWon ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.4)'}`,
+                }}
+              >
+                {gameResult.playerWon ? 'YOU WON!' : 'YOU LOST'}
+              </p>
+              {gameResult.playerWon && (
+                <p className="text-green-400 text-xl font-semibold mt-1">
+                  +{gameResult.payout.toFixed(2)} SOL
+                </p>
+              )}
+            </div>
+
+            {/* Skip button — appears after 1s */}
+            <button
+              onClick={() => setGameStep('result')}
+              className="text-gray-600 hover:text-gray-400 text-xs transition-colors"
+              style={{ opacity: 0, animation: 'fade-in-up 0.4s ease 1s forwards' }}
+            >
+              Skip →
+            </button>
+          </main>
+        )}
+
+        {/* ════════════════════ RESULT ════════════════════ */}
+        {gameStep === 'result' && gameResult && (
+          <main className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+            <div className="w-full max-w-sm anim-reveal">
+              <div
+                className="rounded-2xl overflow-hidden"
+                style={{
+                  background: 'rgba(8,10,24,0.96)',
+                  border: `1px solid ${
+                    gameResult.playerWon ? 'rgba(34,197,94,0.38)' : 'rgba(239,68,68,0.28)'
+                  }`,
+                  boxShadow: gameResult.playerWon
+                    ? '0 0 60px rgba(34,197,94,0.18), 0 24px 48px rgba(0,0,0,0.55)'
+                    : '0 0 40px rgba(239,68,68,0.1), 0 24px 48px rgba(0,0,0,0.55)',
+                  backdropFilter: 'blur(18px)',
+                }}
+              >
+                {/* Top banner */}
+                <div
+                  className="px-8 pt-8 pb-6 text-center"
+                  style={{
+                    background: gameResult.playerWon
+                      ? 'linear-gradient(180deg, rgba(34,197,94,0.12) 0%, transparent 100%)'
+                      : 'linear-gradient(180deg, rgba(239,68,68,0.08) 0%, transparent 100%)',
+                  }}
+                >
+                  <h2
+                    className="text-4xl font-black mb-1.5"
+                    style={{
+                      color: gameResult.playerWon ? '#4ade80' : '#f87171',
+                      textShadow: `0 0 32px ${
+                        gameResult.playerWon ? 'rgba(34,197,94,0.45)' : 'rgba(239,68,68,0.35)'
+                      }`,
+                    }}
+                  >
+                    {gameResult.playerWon ? 'YOU WON!' : 'YOU LOST'}
+                  </h2>
+
+                  <p className="text-gray-500 text-sm">
+                    {gameResult.playerWon
+                      ? 'The veil has lifted. Fortune favors you.'
+                      : 'The veil reveals your fate. Better luck next time.'}
+                  </p>
+                </div>
+
+                {/* Detail cards */}
+                <div className="px-6 pb-7">
+                  <div className="grid grid-cols-2 gap-3 mb-5">
+                    <div
+                      className="p-3 rounded-xl text-center"
+                      style={{
+                        background: 'rgba(168,85,247,0.07)',
+                        border: '1px solid rgba(168,85,247,0.14)',
+                      }}
+                    >
+                      <p className="text-[11px] text-gray-600 mb-1 uppercase tracking-wider">
+                        You Chose
+                      </p>
+                      <p className="text-base font-bold text-white">
+                        Chest #{(selectedChest ?? 0) + 1}
+                      </p>
+                    </div>
+                    <div
+                      className="p-3 rounded-xl text-center"
+                      style={{
+                        background: 'rgba(245,158,11,0.07)',
+                        border: '1px solid rgba(245,158,11,0.18)',
+                      }}
+                    >
+                      <p className="text-[11px] text-gray-600 mb-1 uppercase tracking-wider">
+                        Winning Chest
+                      </p>
+                      <p className="text-base font-bold text-yellow-400">
+                        Chest #{gameResult.winningChest + 1}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Payout */}
+                  <div
+                    className="px-4 py-4 rounded-xl mb-5 text-center"
+                    style={{
+                      background: gameResult.playerWon
+                        ? 'rgba(34,197,94,0.08)'
+                        : 'rgba(239,68,68,0.05)',
+                      border: `1px solid ${
+                        gameResult.playerWon ? 'rgba(34,197,94,0.22)' : 'rgba(239,68,68,0.14)'
+                      }`,
+                    }}
+                  >
+                    <p className="text-[11px] text-gray-600 mb-1 uppercase tracking-wider">
+                      {gameResult.playerWon ? 'Payout' : 'Amount Lost'}
+                    </p>
+                    <p
+                      className="text-3xl font-black"
+                      style={{ color: gameResult.playerWon ? '#4ade80' : '#f87171' }}
+                    >
+                      {gameResult.playerWon ? '+' : '-'}
+                      {(gameResult.playerWon
+                        ? gameResult.payout
+                        : betAmount
+                      ).toFixed(2)}{' '}
+                      SOL
+                    </p>
+                  </div>
+
+                  {/* Explorer link */}
+                  {txSignature && (
+                    <a
+                      href={`https://explorer.solana.com/tx/${txSignature}?cluster=devnet`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-1.5 w-full py-2 rounded-lg mb-4 text-xs font-medium text-gray-600 hover:text-gray-300 transition-colors"
+                      style={{ border: '1px solid rgba(255,255,255,0.06)' }}
+                    >
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                        <path
+                          d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                      View on Solana Explorer
+                    </a>
+                  )}
+
+                  {/* Play Again */}
+                  <button
+                    onClick={resetGame}
+                    className="w-full py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(88,28,135,0.9), rgba(107,33,168,0.9))',
+                      border: '1px solid rgba(168,85,247,0.45)',
+                      color: '#ede9fe',
+                      boxShadow: '0 0 20px rgba(88,28,135,0.28)',
+                    }}
+                  >
+                    Play Again
+                  </button>
+                </div>
+              </div>
+            </div>
+          </main>
         )}
       </div>
     </div>
