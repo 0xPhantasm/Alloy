@@ -15,7 +15,7 @@ const STEPS = [
           href="https://faucet.solana.com/"
           target="_blank"
           rel="noopener noreferrer"
-          className="text-purple-400 hover:text-purple-300 underline"
+          className="text-gray-300 hover:text-white underline"
         >
           Solana Faucet
         </a>
@@ -57,20 +57,20 @@ const ODDS = [
 
 export default function HowToPlayPage() {
   return (
-    <div className="relative min-h-screen flex flex-col" style={{ background: '#050810', color: '#ededed' }}>
+    <div className="relative min-h-screen flex flex-col" style={{ background: '#050505', color: '#ededed' }}>
       {/* Background */}
       <div
         className="fixed inset-0 pointer-events-none"
         style={{
           background:
-            'radial-gradient(ellipse 80% 60% at 50% 0%, rgba(88,28,135,0.22) 0%, rgba(5,8,16,0.92) 70%)',
+            'radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,255,255,0.04) 0%, rgba(5,5,5,0.95) 70%)',
         }}
       />
       <div
         className="fixed inset-0 pointer-events-none opacity-[0.04]"
         style={{
           backgroundImage:
-            'linear-gradient(rgba(168,85,247,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(168,85,247,0.6) 1px, transparent 1px)',
+            'linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)',
           backgroundSize: '48px 48px',
         }}
       />
@@ -83,33 +83,33 @@ export default function HowToPlayPage() {
           <div
             className="max-w-6xl mx-auto flex items-center justify-between px-5 py-3 rounded-xl"
             style={{
-              background: 'rgba(8,10,22,0.82)',
+              background: 'rgba(5,5,5,0.85)',
               backdropFilter: 'blur(14px)',
-              border: '1px solid rgba(168,85,247,0.18)',
+              border: '1px solid rgba(255,255,255,0.1)',
             }}
           >
             {/* Logo */}
             <Link href="/" className="flex items-center gap-2.5">
               <div
                 className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{ background: 'rgba(88,28,135,0.55)', border: '1px solid rgba(168,85,247,0.35)' }}
+                style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)' }}
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-                  <path d="M3 7h18v12H3z" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M3 7l9-4 9 4" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M9 11h6" stroke="#a855f7" strokeWidth="2" strokeLinecap="round"/>
+                  <path d="M3 7h18v12H3z" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M3 7l9-4 9 4" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M9 11h6" stroke="#ffffff" strokeWidth="2" strokeLinecap="round"/>
                 </svg>
               </div>
-              <span className="text-base font-bold tracking-wide" style={{ color: '#a855f7' }}>
+              <span className="text-base font-bold tracking-wide" style={{ color: '#ffffff' }}>
                 VeiledChests
               </span>
             </Link>
 
             {/* Nav */}
             <nav className="hidden md:flex gap-7 text-sm font-medium">
-              <Link href="/" className="text-gray-500 hover:text-purple-300 transition-colors duration-200">Game</Link>
-              <Link href="/about" className="text-gray-500 hover:text-purple-300 transition-colors duration-200">About</Link>
-              <Link href="/how-to-play" className="text-purple-300 transition-colors duration-200">How to Play</Link>
+              <Link href="/" className="text-gray-500 hover:text-white transition-colors duration-200">Game</Link>
+              <Link href="/about" className="text-gray-500 hover:text-white transition-colors duration-200">About</Link>
+              <Link href="/how-to-play" className="text-white transition-colors duration-200">How to Play</Link>
             </nav>
 
             {/* Wallet */}
@@ -138,8 +138,8 @@ export default function HowToPlayPage() {
                 key={n}
                 className="flex gap-5 rounded-2xl p-6"
                 style={{
-                  background: 'rgba(8,10,24,0.85)',
-                  border: '1px solid rgba(168,85,247,0.14)',
+                  background: 'rgba(10,10,10,0.85)',
+                  border: '1px solid rgba(255,255,255,0.08)',
                   backdropFilter: 'blur(14px)',
                 }}
               >
@@ -147,9 +147,9 @@ export default function HowToPlayPage() {
                 <div
                   className="flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center font-mono text-sm font-bold"
                   style={{
-                    background: 'rgba(88,28,135,0.35)',
-                    border: '1px solid rgba(168,85,247,0.35)',
-                    color: '#c084fc',
+                    background: 'rgba(255,255,255,0.08)',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    color: '#ffffff',
                   }}
                 >
                   {n}
@@ -163,9 +163,9 @@ export default function HowToPlayPage() {
                     <p
                       className="mt-2.5 text-xs px-3 py-1.5 rounded-lg inline-block font-mono"
                       style={{
-                        background: 'rgba(168,85,247,0.08)',
-                        border: '1px solid rgba(168,85,247,0.18)',
-                        color: '#a78bfa',
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.14)',
+                        color: '#d1d5db',
                       }}
                     >
                       {note}
@@ -180,20 +180,20 @@ export default function HowToPlayPage() {
           <div
             className="rounded-2xl overflow-hidden mb-12"
             style={{
-              background: 'rgba(8,10,24,0.85)',
-              border: '1px solid rgba(168,85,247,0.16)',
+              background: 'rgba(10,10,10,0.85)',
+              border: '1px solid rgba(255,255,255,0.08)',
               backdropFilter: 'blur(14px)',
             }}
           >
             <div
               className="px-6 py-4 border-b"
-              style={{ borderColor: 'rgba(168,85,247,0.14)' }}
+              style={{ borderColor: 'rgba(255,255,255,0.08)' }}
             >
               <h2 className="text-base font-bold text-white">Odds &amp; Payouts</h2>
               <p className="text-gray-600 text-xs mt-0.5">Expected value = your bet, always.</p>
             </div>
 
-            <div className="divide-y" style={{ borderColor: 'rgba(168,85,247,0.08)' }}>
+            <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
               {/* Column headers */}
               <div className="grid grid-cols-4 px-6 py-2.5">
                 {['Chests', 'Win Chance', 'Multiplier', 'Example (0.5 SOL)'].map((h) => (
@@ -204,10 +204,10 @@ export default function HowToPlayPage() {
                 <div
                   key={chests}
                   className="grid grid-cols-4 px-6 py-3.5 transition-colors"
-                  style={{ borderColor: 'rgba(168,85,247,0.08)' }}
+                  style={{ borderColor: 'rgba(255,255,255,0.06)' }}
                 >
                   <span className="text-sm font-bold text-white">{chests}</span>
-                  <span className="text-sm text-yellow-400 font-semibold">{chance}</span>
+                  <span className="text-sm text-gray-200 font-semibold">{chance}</span>
                   <span className="text-sm text-green-400 font-semibold">{multiplier}</span>
                   <span className="text-sm text-gray-400">{example}</span>
                 </div>
@@ -221,13 +221,13 @@ export default function HowToPlayPage() {
               href="/"
               className="inline-block px-10 py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:scale-105 active:scale-95"
               style={{
-                background: 'linear-gradient(135deg, rgba(180,90,0,0.9), rgba(217,119,6,0.95))',
-                border: '2px solid rgba(245,158,11,0.65)',
-                color: '#fff7ed',
-                boxShadow: '0 0 28px rgba(245,158,11,0.28)',
+                background: '#ffffff',
+                border: '2px solid rgba(255,255,255,0.9)',
+                color: '#000000',
+                boxShadow: '0 0 28px rgba(255,255,255,0.12)',
               }}
             >
-              Open the Veil
+              Play Now
             </Link>
           </div>
 
@@ -239,7 +239,7 @@ export default function HowToPlayPage() {
                 href="https://x.com/EtherPhantasm"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-gray-500 hover:text-purple-400 transition-colors"
+                className="text-gray-500 hover:text-white transition-colors"
               >
                 EtherPhantasm
               </a>

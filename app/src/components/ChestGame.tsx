@@ -550,16 +550,16 @@ export const ChestGame: FC = () => {
             <div
               className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all"
               style={{
-                background: current ? 'rgba(168,85,247,0.18)' : done ? 'rgba(168,85,247,0.08)' : 'transparent',
-                border: `1px solid ${current ? 'rgba(168,85,247,0.45)' : done ? 'rgba(168,85,247,0.25)' : 'rgba(255,255,255,0.05)'}`,
-                color: current ? '#c084fc' : done ? '#7c3aed' : '#374151',
+                background: current ? 'rgba(255,255,255,0.1)' : done ? 'rgba(255,255,255,0.04)' : 'transparent',
+                border: `1px solid ${current ? 'rgba(255,255,255,0.4)' : done ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)'}`,
+                color: current ? '#ffffff' : done ? '#9ca3af' : '#374151',
               }}
             >
               <span
                 className="w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold"
                 style={{
-                  background: current ? '#7c3aed' : done ? '#4c1d95' : '#111827',
-                  color: current ? '#fff' : done ? '#a78bfa' : '#374151',
+                  background: current ? '#ffffff' : done ? 'rgba(255,255,255,0.15)' : '#111827',
+                  color: current ? '#000000' : done ? '#9ca3af' : '#374151',
                 }}
               >
                 {done ? '✓' : i + 1}
@@ -569,7 +569,7 @@ export const ChestGame: FC = () => {
             {i < 2 && (
               <div
                 className="w-6 h-px"
-                style={{ background: i < active ? 'rgba(124,58,237,0.5)' : 'rgba(255,255,255,0.06)' }}
+                style={{ background: i < active ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.06)' }}
               />
             )}
           </div>
@@ -579,7 +579,7 @@ export const ChestGame: FC = () => {
   );
 
   return (
-    <div className="min-h-screen relative overflow-hidden" style={{ background: '#050810' }}>
+    <div className="min-h-screen relative overflow-hidden" style={{ background: '#050505' }}>
       {/* ── Layered background ── */}
       <div
         className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-1000"
@@ -593,7 +593,7 @@ export const ChestGame: FC = () => {
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            'radial-gradient(ellipse 80% 60% at 50% 0%, rgba(88,28,135,0.22) 0%, rgba(5,8,16,0.92) 70%)',
+            'radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,255,255,0.04) 0%, rgba(5,5,5,0.95) 70%)',
         }}
       />
       {/* subtle grid */}
@@ -601,7 +601,7 @@ export const ChestGame: FC = () => {
         className="absolute inset-0 pointer-events-none opacity-[0.04]"
         style={{
           backgroundImage:
-            'linear-gradient(rgba(168,85,247,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(168,85,247,0.6) 1px, transparent 1px)',
+            'linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)',
           backgroundSize: '48px 48px',
         }}
       />
@@ -614,24 +614,24 @@ export const ChestGame: FC = () => {
           <div
             className="max-w-6xl mx-auto flex items-center justify-between px-5 py-3 rounded-xl"
             style={{
-              background: 'rgba(8,10,22,0.82)',
+              background: 'rgba(5,5,5,0.85)',
               backdropFilter: 'blur(14px)',
-              border: '1px solid rgba(168,85,247,0.18)',
+              border: '1px solid rgba(255,255,255,0.1)',
             }}
           >
             {/* Logo */}
             <div className="flex items-center gap-2.5">
               <div
                 className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{ background: 'rgba(88,28,135,0.55)', border: '1px solid rgba(168,85,247,0.35)' }}
+                style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)' }}
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-                  <path d="M3 7h18v12H3z" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M3 7l9-4 9 4" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M9 11h6" stroke="#a855f7" strokeWidth="2" strokeLinecap="round"/>
+                  <path d="M3 7h18v12H3z" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M3 7l9-4 9 4" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M9 11h6" stroke="#ffffff" strokeWidth="2" strokeLinecap="round"/>
                 </svg>
               </div>
-              <span className="text-base font-bold tracking-wide" style={{ color: '#a855f7' }}>
+              <span className="text-base font-bold tracking-wide" style={{ color: '#ffffff' }}>
                 VeiledChests
               </span>
             </div>
@@ -640,12 +640,12 @@ export const ChestGame: FC = () => {
             <nav className="hidden md:flex gap-7 text-sm font-medium">
               <button
                 onClick={() => setGameStep('hero')}
-                className="text-purple-300 transition-colors duration-200 cursor-pointer"
+                className="text-white transition-colors duration-200 cursor-pointer"
               >
                 Game
               </button>
-              <a href="/about" className="text-gray-500 hover:text-purple-300 transition-colors duration-200">About</a>
-              <a href="/how-to-play" className="text-gray-500 hover:text-purple-300 transition-colors duration-200">How to Play</a>
+              <a href="/about" className="text-gray-500 hover:text-white transition-colors duration-200">About</a>
+              <a href="/how-to-play" className="text-gray-500 hover:text-white transition-colors duration-200">How to Play</a>
             </nav>
 
             {/* Wallet area */}
@@ -654,14 +654,14 @@ export const ChestGame: FC = () => {
                 <div
                   className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
                   style={{
-                    background: 'rgba(168,85,247,0.1)',
-                    border: '1px solid rgba(168,85,247,0.2)',
-                    color: '#c084fc',
+                    background: 'rgba(255,255,255,0.06)',
+                    border: '1px solid rgba(255,255,255,0.14)',
+                    color: '#e5e5e5',
                   }}
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="9" stroke="#c084fc" strokeWidth="2"/>
-                    <path d="M12 7v5l3 3" stroke="#c084fc" strokeWidth="2" strokeLinecap="round"/>
+                    <circle cx="12" cy="12" r="9" stroke="#e5e5e5" strokeWidth="2"/>
+                    <path d="M12 7v5l3 3" stroke="#e5e5e5" strokeWidth="2" strokeLinecap="round"/>
                   </svg>
                   {solBalance.toFixed(3)} SOL
                 </div>
@@ -680,25 +680,25 @@ export const ChestGame: FC = () => {
               <div
                 className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-8 text-xs font-semibold tracking-widest uppercase"
                 style={{
-                  background: 'rgba(168,85,247,0.13)',
-                  border: '1px solid rgba(168,85,247,0.3)',
-                  color: '#c084fc',
+                  background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid rgba(255,255,255,0.18)',
+                  color: '#e5e5e5',
                 }}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-                Powered by Arcium MPC · Solana
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                Powered by Arcium
               </div>
 
               {/* Headline */}
-              <h1 className="text-6xl md:text-7xl font-black mb-6 leading-[1.05] tracking-tight">
-                <span className="text-white">CHOOSE</span>
+              <h1 className="text-5xl md:text-6xl font-black mb-6 leading-[1.05] tracking-tight">
+                <span className="text-white">A CHOICE</span>
                 <br />
-                <span className="shimmer-text">YOUR FATE</span>
+                <span className="shimmer-text">BEFORE THE UNVEIL</span>
               </h1>
 
               <p className="text-gray-400 text-base md:text-lg mb-10 leading-relaxed max-w-lg mx-auto">
                 One chest hides the reward. Your pick is{' '}
-                <span className="text-purple-300 font-semibold">encrypted by Arcium's MPC network</span>
+                <span className="text-white font-semibold">encrypted by Arcium's MPC network</span>
                 {' '}— nobody can see your choice until the reveal.
               </p>
 
@@ -713,12 +713,12 @@ export const ChestGame: FC = () => {
                   onClick={() => setGameStep('stake')}
                   className="anim-glow-pulse relative px-12 py-4 text-base font-bold rounded-xl transition-all duration-300 hover:scale-105 active:scale-95"
                   style={{
-                    background: 'linear-gradient(135deg, rgba(88,28,135,0.9) 0%, rgba(107,33,168,0.9) 100%)',
-                    border: '2px solid rgba(168,85,247,0.55)',
-                    color: '#ede9fe',
+                    background: '#ffffff',
+                    border: '2px solid rgba(255,255,255,0.8)',
+                    color: '#000000',
                   }}
                 >
-                  Open the Veil &nbsp;→
+                  Enter &nbsp;→
                 </button>
               )}
             </div>
@@ -735,7 +735,7 @@ export const ChestGame: FC = () => {
                     width: size,
                     height: size,
                     opacity: i === 1 ? 0.35 : 0.18,
-                    filter: 'drop-shadow(0 0 16px rgba(168,85,247,0.5))',
+                    filter: 'drop-shadow(0 0 16px rgba(255,255,255,0.35))',
                     animationDuration: `${3 + i * 0.5}s`,
                     animationDelay: `${i * 0.4}s`,
                   }}
@@ -751,7 +751,7 @@ export const ChestGame: FC = () => {
                   href="https://x.com/EtherPhantasm"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-gray-500 hover:text-purple-400 transition-colors"
+                  className="text-gray-500 hover:text-white transition-colors"
                 >
                   EtherPhantasm
                 </a>
@@ -769,10 +769,10 @@ export const ChestGame: FC = () => {
               <div
                 className="rounded-2xl p-7"
                 style={{
-                  background: 'rgba(8,10,24,0.92)',
-                  border: '1px solid rgba(168,85,247,0.22)',
+                  background: 'rgba(10,10,10,0.92)',
+                  border: '1px solid rgba(255,255,255,0.1)',
                   backdropFilter: 'blur(18px)',
-                  boxShadow: '0 0 60px rgba(88,28,135,0.18), 0 24px 48px rgba(0,0,0,0.55)',
+                  boxShadow: '0 0 60px rgba(255,255,255,0.04), 0 24px 48px rgba(0,0,0,0.7)',
                 }}
               >
                 <h2 className="text-2xl font-black text-white mb-1">Set Your Stake</h2>
@@ -794,11 +794,11 @@ export const ChestGame: FC = () => {
                           onClick={() => setBetAmount(amount)}
                           className="py-3 rounded-xl text-sm font-bold transition-all duration-200"
                           style={{
-                            background: active ? 'rgba(88,28,135,0.85)' : 'rgba(88,28,135,0.12)',
-                            border: `1px solid ${active ? 'rgba(168,85,247,0.75)' : 'rgba(88,28,135,0.28)'}`,
-                            color: active ? '#ede9fe' : '#6b21a8',
+                            background: active ? '#ffffff' : 'rgba(255,255,255,0.05)',
+                            border: `1px solid ${active ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.1)'}`,
+                            color: active ? '#000000' : '#6b7280',
                             transform: active ? 'scale(1.06)' : 'scale(1)',
-                            boxShadow: active ? '0 0 18px rgba(168,85,247,0.22)' : 'none',
+                            boxShadow: active ? '0 0 18px rgba(255,255,255,0.2)' : 'none',
                           }}
                         >
                           {amount}
@@ -844,8 +844,8 @@ export const ChestGame: FC = () => {
                 <div
                   className="flex items-center justify-between px-4 py-3 rounded-xl mb-6 text-sm"
                   style={{
-                    background: 'rgba(168,85,247,0.05)',
-                    border: '1px solid rgba(168,85,247,0.1)',
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.08)',
                   }}
                 >
                   <span className="text-gray-500">
@@ -865,10 +865,10 @@ export const ChestGame: FC = () => {
                   onClick={() => setGameStep('select')}
                   className="w-full py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                   style={{
-                    background: 'linear-gradient(135deg, rgba(88,28,135,0.9), rgba(107,33,168,0.9))',
-                    border: '1px solid rgba(168,85,247,0.45)',
-                    color: '#ede9fe',
-                    boxShadow: '0 0 22px rgba(88,28,135,0.28)',
+                    background: '#ffffff',
+                    border: '1px solid rgba(255,255,255,0.9)',
+                    color: '#000000',
+                    boxShadow: '0 0 22px rgba(255,255,255,0.12)',
                   }}
                 >
                   Choose a Chest →
@@ -893,11 +893,11 @@ export const ChestGame: FC = () => {
             {/* Headline */}
             <div className="text-center mb-10">
               <h2 className="text-3xl font-black text-white mb-2">
-                Which chest holds the treasure?
+                Forge Your Path
               </h2>
               <p className="text-gray-500 text-sm">
-                Betting{' '}
-                <span className="text-purple-300 font-semibold">{betAmount} SOL</span>
+                Staking{' '}
+                <span className="text-white font-semibold">{betAmount} SOL</span>
                 {' '}across{' '}
                 <span className="text-green-400 font-semibold">{numChests} chests</span>
               </p>
@@ -920,11 +920,11 @@ export const ChestGame: FC = () => {
                       className="relative rounded-2xl p-5 transition-all duration-300"
                       style={{
                         background: chosen
-                          ? 'rgba(245,158,11,0.14)'
-                          : 'rgba(8,10,24,0.7)',
-                        border: `2px solid ${chosen ? 'rgba(245,158,11,0.65)' : 'rgba(168,85,247,0.14)'}`,
+                          ? 'rgba(255,255,255,0.08)'
+                          : 'rgba(10,10,10,0.7)',
+                        border: `2px solid ${chosen ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.08)'}`,
                         boxShadow: chosen
-                          ? '0 0 44px rgba(245,158,11,0.28), 0 0 80px rgba(245,158,11,0.1)'
+                          ? '0 0 44px rgba(255,255,255,0.2), 0 0 80px rgba(255,255,255,0.07)'
                           : '0 0 16px rgba(0,0,0,0.3)',
                         transform: chosen
                           ? 'translateY(-10px) scale(1.07)'
@@ -937,8 +937,8 @@ export const ChestGame: FC = () => {
                         className={`w-28 h-28 object-contain ${chosen ? 'anim-float-slow' : 'anim-float'}`}
                         style={{
                           filter: chosen
-                            ? 'drop-shadow(0 0 22px rgba(245,158,11,0.85)) brightness(1.12)'
-                            : 'drop-shadow(0 0 8px rgba(168,85,247,0.28))',
+                            ? 'drop-shadow(0 0 22px rgba(255,255,255,0.7)) brightness(1.2)'
+                            : 'drop-shadow(0 0 8px rgba(255,255,255,0.1))',
                           animationDuration: `${2.8 + i * 0.35}s`,
                         }}
                       />
@@ -946,8 +946,8 @@ export const ChestGame: FC = () => {
                       {/* Checkmark badge */}
                       {chosen && (
                         <span
-                          className="absolute top-2 right-2 w-5 h-5 rounded-full bg-yellow-400 flex items-center justify-center"
-                          style={{ boxShadow: '0 0 8px rgba(245,158,11,0.6)' }}
+                          className="absolute top-2 right-2 w-5 h-5 rounded-full bg-white flex items-center justify-center"
+                          style={{ boxShadow: '0 0 8px rgba(255,255,255,0.5)' }}
                         >
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
                             <path
@@ -965,7 +965,7 @@ export const ChestGame: FC = () => {
                       {!chosen && !isPlaying && (
                         <div
                           className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
-                          style={{ border: '2px solid rgba(168,85,247,0.4)' }}
+                          style={{ border: '2px solid rgba(255,255,255,0.35)' }}
                         />
                       )}
                     </div>
@@ -974,9 +974,9 @@ export const ChestGame: FC = () => {
                     <div
                       className="mt-2.5 px-4 py-1 rounded-full text-xs font-bold transition-all duration-300"
                       style={{
-                        background: chosen ? 'rgba(245,158,11,0.18)' : 'rgba(88,28,135,0.18)',
-                        color: chosen ? '#fbbf24' : '#6b21a8',
-                        border: `1px solid ${chosen ? 'rgba(245,158,11,0.35)' : 'rgba(88,28,135,0.28)'}`,
+                        background: chosen ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)',
+                        color: chosen ? '#ffffff' : '#6b7280',
+                        border: `1px solid ${chosen ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.08)'}`,
                       }}
                     >
                       #{i + 1}
@@ -991,7 +991,7 @@ export const ChestGame: FC = () => {
               {selectedChest !== null ? (
                 <p className="text-gray-300 text-sm anim-fade-up">
                   Chest{' '}
-                  <span className="text-yellow-400 font-bold">#{selectedChest + 1}</span>
+                  <span className="text-white font-bold">#{selectedChest + 1}</span>
                   {' '}selected — potential win{' '}
                   <span className="text-green-400 font-bold">
                     +{(betAmount * numChests).toFixed(2)} SOL
@@ -1008,22 +1008,22 @@ export const ChestGame: FC = () => {
                 <div className="relative w-14 h-14">
                   <div
                     className="absolute inset-0 rounded-full border-2"
-                    style={{ borderColor: 'rgba(88,28,135,0.4)' }}
+                    style={{ borderColor: 'rgba(255,255,255,0.12)' }}
                   />
                   <div
-                    className="absolute inset-0 rounded-full border-2 border-transparent border-t-purple-400"
+                    className="absolute inset-0 rounded-full border-2 border-transparent border-t-white"
                     style={{ animation: 'spin-cw 1s linear infinite' }}
                   />
                   <div
-                    className="absolute inset-2 rounded-full border-2 border-transparent border-t-yellow-400"
+                    className="absolute inset-2 rounded-full border-2 border-transparent border-t-gray-400"
                     style={{ animation: 'spin-ccw 1.6s linear infinite' }}
                   />
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                    <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
                   </div>
                 </div>
                 <div className="text-center">
-                  <p className="text-purple-300 text-sm font-semibold">
+                  <p className="text-gray-200 text-sm font-semibold">
                     Arcium MPC computing result…
                   </p>
                   <p className="text-gray-600 text-xs mt-1">
@@ -1055,21 +1055,21 @@ export const ChestGame: FC = () => {
               style={{
                 background:
                   selectedChest !== null && !isPlaying
-                    ? 'linear-gradient(135deg, rgba(180,90,0,0.9), rgba(217,119,6,0.95))'
-                    : 'rgba(88,28,135,0.28)',
+                    ? '#ffffff'
+                    : 'rgba(255,255,255,0.05)',
                 border: `2px solid ${
                   selectedChest !== null && !isPlaying
-                    ? 'rgba(245,158,11,0.65)'
-                    : 'rgba(88,28,135,0.28)'
+                    ? 'rgba(255,255,255,0.9)'
+                    : 'rgba(255,255,255,0.1)'
                 }`,
-                color: selectedChest !== null && !isPlaying ? '#fff7ed' : '#6b21a8',
+                color: selectedChest !== null && !isPlaying ? '#000000' : '#6b7280',
                 boxShadow:
                   selectedChest !== null && !isPlaying
-                    ? '0 0 28px rgba(245,158,11,0.28)'
+                    ? '0 0 28px rgba(255,255,255,0.18)'
                     : 'none',
               }}
             >
-              {isPlaying ? 'Processing…' : 'Reveal the Truth'}
+              {isPlaying ? 'Processing…' : 'Reveal'}
             </button>
 
             <button
@@ -1106,7 +1106,7 @@ export const ChestGame: FC = () => {
                           height: '112px',
                           top: 0,
                           borderRadius: '50%',
-                          background: 'radial-gradient(circle, rgba(245,158,11,0.55), transparent 70%)',
+                          background: 'radial-gradient(circle, rgba(255,255,255,0.4), transparent 70%)',
                         }}
                       />
                     )}
@@ -1118,8 +1118,8 @@ export const ChestGame: FC = () => {
                       className={`w-28 h-28 object-contain ${isWinner ? 'anim-chest-win' : 'anim-chest-lose'}`}
                       style={{
                         filter: isWinner
-                          ? 'drop-shadow(0 0 10px rgba(245,158,11,0.5))'
-                          : 'drop-shadow(0 0 6px rgba(168,85,247,0.2))',
+                          ? 'drop-shadow(0 0 10px rgba(255,255,255,0.6))'
+                          : 'drop-shadow(0 0 6px rgba(255,255,255,0.05))',
                       }}
                     />
 
@@ -1128,9 +1128,9 @@ export const ChestGame: FC = () => {
                       <span
                         className="absolute top-1 right-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full"
                         style={{
-                          background: 'rgba(245,158,11,0.25)',
-                          color: '#fbbf24',
-                          border: '1px solid rgba(245,158,11,0.4)',
+                          background: 'rgba(255,255,255,0.15)',
+                          color: '#ffffff',
+                          border: '1px solid rgba(255,255,255,0.4)',
                         }}
                       >
                         You
@@ -1140,7 +1140,7 @@ export const ChestGame: FC = () => {
                     {/* Label fades in at 2.5s */}
                     <div
                       className="mt-2.5 text-xs font-bold anim-reveal-label"
-                      style={{ color: isWinner ? '#fbbf24' : '#4b5563' }}
+                      style={{ color: isWinner ? '#ffffff' : '#4b5563' }}
                     >
                       {isWinner ? '★ Winner' : `#${i + 1}`}
                     </div>
@@ -1221,8 +1221,8 @@ export const ChestGame: FC = () => {
 
                   <p className="text-gray-500 text-sm">
                     {gameResult.playerWon
-                      ? 'The veil has lifted. Fortune favors you.'
-                      : 'The veil reveals your fate. Better luck next time.'}
+                      ? 'Fortune favors you.'
+                      : 'Better luck next time.'}
                   </p>
                 </div>
 
@@ -1232,8 +1232,8 @@ export const ChestGame: FC = () => {
                     <div
                       className="p-3 rounded-xl text-center"
                       style={{
-                        background: 'rgba(168,85,247,0.07)',
-                        border: '1px solid rgba(168,85,247,0.14)',
+                        background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid rgba(255,255,255,0.1)',
                       }}
                     >
                       <p className="text-[11px] text-gray-600 mb-1 uppercase tracking-wider">
@@ -1246,14 +1246,14 @@ export const ChestGame: FC = () => {
                     <div
                       className="p-3 rounded-xl text-center"
                       style={{
-                        background: 'rgba(245,158,11,0.07)',
-                        border: '1px solid rgba(245,158,11,0.18)',
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.14)',
                       }}
                     >
                       <p className="text-[11px] text-gray-600 mb-1 uppercase tracking-wider">
                         Winning Chest
                       </p>
-                      <p className="text-base font-bold text-yellow-400">
+                      <p className="text-base font-bold text-white">
                         Chest #{gameResult.winningChest + 1}
                       </p>
                     </div>
@@ -1314,10 +1314,10 @@ export const ChestGame: FC = () => {
                     onClick={resetGame}
                     className="w-full py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
                     style={{
-                      background: 'linear-gradient(135deg, rgba(88,28,135,0.9), rgba(107,33,168,0.9))',
-                      border: '1px solid rgba(168,85,247,0.45)',
-                      color: '#ede9fe',
-                      boxShadow: '0 0 20px rgba(88,28,135,0.28)',
+                      background: '#ffffff',
+                      border: '1px solid rgba(255,255,255,0.9)',
+                      color: '#000000',
+                      boxShadow: '0 0 20px rgba(255,255,255,0.12)',
                     }}
                   >
                     Play Again
