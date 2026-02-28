@@ -638,15 +638,14 @@ export const ChestGame: FC = () => {
 
             {/* Nav */}
             <nav className="hidden md:flex gap-7 text-sm font-medium">
-              {['Game', 'About', 'How to Play'].map((item) => (
-                <a
-                  key={item}
-                  href="#"
-                  className="text-gray-500 hover:text-purple-300 transition-colors duration-200"
-                >
-                  {item}
-                </a>
-              ))}
+              <button
+                onClick={() => setGameStep('hero')}
+                className="text-purple-300 transition-colors duration-200 cursor-pointer"
+              >
+                Game
+              </button>
+              <a href="/about" className="text-gray-500 hover:text-purple-300 transition-colors duration-200">About</a>
+              <a href="/how-to-play" className="text-gray-500 hover:text-purple-300 transition-colors duration-200">How to Play</a>
             </nav>
 
             {/* Wallet area */}
