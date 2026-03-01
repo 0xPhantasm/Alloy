@@ -9,6 +9,201 @@ import * as anchor from "@coral-xyz/anchor";
 import { x25519 } from "@noble/curves/ed25519";
 import IDL from "@/idl/veiled_chests.json";
 import type { VeiledChests } from "@/idl/veiled_chests";
+import { useToast, type ToastItem } from "@/components/Toast";
+
+// ─── Error classification ───────────────────────────────────────────────────
+
+type ClassifiedToast = Omit<ToastItem, "id">;
+
+function classifyGameError(err: unknown): ClassifiedToast {
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+
+  // ── User intentionally rejected ──
+  if (lower.includes("user rejected") || lower.includes("user denied") || lower.includes("user cancelled")) {
+    return {
+      type: "info",
+      title: "Transaction Cancelled",
+      message: "You rejected the transaction in your wallet.",
+      duration: 4000,
+    };
+  }
+
+  // ── Wallet not connected ──
+  if (lower.includes("wallet not connected") || lower.includes("connect wallet")) {
+    return {
+      type: "warning",
+      title: "Wallet Not Connected",
+      message: "Please connect your Solana wallet to play.",
+      suggestion: "Click the wallet button in the top-right corner.",
+      duration: 6000,
+    };
+  }
+
+  // ── Insufficient balance (pre-flight or on-chain) ──
+  if (
+    lower.includes("insufficient") ||
+    lower.includes("not enough sol") ||
+    lower.includes("0x1") // InsufficientFunds on-chain
+  ) {
+    return {
+      type: "warning",
+      title: "Insufficient SOL",
+      message: "Your wallet doesn't have enough SOL for this bet plus transaction fees.",
+      suggestion: "Lower your bet amount or add more devnet SOL at faucet.solana.com.",
+      duration: 8000,
+    };
+  }
+
+  // ── Previous game still settling (6004 after retries) ──
+  if (lower.includes("previous game") || lower.includes("still settling")) {
+    return {
+      type: "warning",
+      title: "Previous Game Settling",
+      message: "Your last game is still being processed on-chain.",
+      suggestion: "Wait 5-10 seconds and try again.",
+      duration: 7000,
+    };
+  }
+
+  // ── Arcium network busy (6603 after retries) ──
+  if (lower.includes("arcium network") || lower.includes("briefly busy") || lower.includes("invalidslot")) {
+    return {
+      type: "warning",
+      title: "Arcium Network Busy",
+      message: "The Arcium MPC network is temporarily congested.",
+      suggestion: "Wait a few seconds and try again. This usually resolves quickly.",
+      duration: 7000,
+    };
+  }
+
+  // ── MXE public key not ready ──
+  if (lower.includes("mxe public key") || lower.includes("keygen")) {
+    return {
+      type: "warning",
+      title: "MXE Not Ready",
+      message: "The Arcium encryption key hasn't been generated yet for this program.",
+      suggestion: "This can take a few minutes on devnet. Please try again shortly.",
+      duration: 10000,
+    };
+  }
+
+  // ── MPC computation failed (AbortedComputation) ──
+  if (lower.includes("abortedcomputation") || lower.includes("mpc computation failed")) {
+    return {
+      type: "error",
+      title: "Computation Failed",
+      message: "The MPC computation was aborted by the Arcium network.",
+      suggestion: "This is usually transient. Try playing again in a few seconds.",
+      duration: 8000,
+    };
+  }
+
+  // ── Game cancelled by network ──
+  if (lower.includes("game was cancelled") || lower.includes("cancelled by the network")) {
+    return {
+      type: "error",
+      title: "Game Cancelled",
+      message: "The game was cancelled by the network before completion.",
+      suggestion: "Your bet has been refunded. Try starting a new game.",
+      duration: 8000,
+    };
+  }
+
+  // ── Callback tx not found (game completed but can't read result) ──
+  if (lower.includes("could not retrieve the result") || lower.includes("result transaction")) {
+    return {
+      type: "warning",
+      title: "Result Unavailable",
+      message: "Game completed but we couldn't fetch the result transaction.",
+      suggestion: "Check your wallet balance — if it increased, you won! You can also verify on Solana Explorer.",
+      duration: 12000,
+    };
+  }
+
+  // ── Timeout waiting for MPC ──
+  if (lower.includes("timed out") || lower.includes("timeout")) {
+    return {
+      type: "warning",
+      title: "MPC Timeout",
+      message: "Timed out waiting for the Arcium computation result.",
+      suggestion: "The game may still complete — check your wallet balance in a minute. If not, try again.",
+      duration: 10000,
+    };
+  }
+
+  // ── Transaction confirmation failure ──
+  if (lower.includes("failed to confirm") || lower.includes("failed after")) {
+    return {
+      type: "error",
+      title: "Transaction Failed",
+      message: "The transaction could not be confirmed on Solana.",
+      suggestion: "Devnet may be congested. Wait a moment and try again.",
+      duration: 8000,
+    };
+  }
+
+  // ── Transaction failed on-chain ──
+  if (lower.includes("transaction failed on-chain")) {
+    return {
+      type: "error",
+      title: "On-Chain Error",
+      message: "The transaction was processed but failed on-chain.",
+      suggestion: "This may be a temporary issue. Try again or check Solana Explorer for details.",
+      duration: 8000,
+    };
+  }
+
+  // ── Simulation failure (non-retryable) ──
+  if (lower.includes("simulation failed")) {
+    return {
+      type: "error",
+      title: "Simulation Failed",
+      message: "Transaction simulation failed before sending.",
+      suggestion: "This could be a program error. Try again or check the console for details.",
+      duration: 8000,
+    };
+  }
+
+  // ── Network / fetch errors ──
+  if (
+    lower.includes("networkerror") ||
+    lower.includes("failed to fetch") ||
+    lower.includes("network request") ||
+    lower.includes("econnrefused") ||
+    lower.includes("502") ||
+    lower.includes("503") ||
+    lower.includes("socket hang up")
+  ) {
+    return {
+      type: "error",
+      title: "Network Error",
+      message: "Could not reach the Solana RPC node.",
+      suggestion: "Check your internet connection and try again. If the issue persists, devnet may be down.",
+      duration: 8000,
+    };
+  }
+
+  // ── Blockhash expired ──
+  if (lower.includes("blockhash") && (lower.includes("expired") || lower.includes("not found"))) {
+    return {
+      type: "warning",
+      title: "Transaction Expired",
+      message: "The transaction expired before it could be processed.",
+      suggestion: "This happens when the network is slow. Please try again.",
+      duration: 6000,
+    };
+  }
+
+  // ── Generic fallback ──
+  return {
+    type: "error",
+    title: "Something Went Wrong",
+    message: msg.length > 200 ? msg.slice(0, 200) + "…" : msg,
+    suggestion: "Please try again. If the issue persists, check the browser console for details.",
+    duration: 8000,
+  };
+}
 
 // Constants - Program ID derived from IDL
 const PROGRAM_ID = new PublicKey(IDL.address);
@@ -30,6 +225,7 @@ interface GameResult {
 export const ChestGame: FC = () => {
   const { connection } = useConnection();
   const wallet = useWallet();
+  const { addToast } = useToast();
 
   const [gameStep, setGameStep] = useState<'hero' | 'stake' | 'select' | 'reveal' | 'result'>('hero');
   const [numChests, setNumChests] = useState(3);
@@ -37,7 +233,6 @@ export const ChestGame: FC = () => {
   const [betAmount, setBetAmount] = useState(0.1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [txSignature, setTxSignature] = useState<string | null>(null);
   const [solBalance, setSolBalance] = useState<number | null>(null);
 
@@ -64,6 +259,19 @@ export const ChestGame: FC = () => {
     return () => clearTimeout(t);
   }, [gameStep]);
 
+  // Show success/loss toast when result arrives
+  useEffect(() => {
+    if (!gameResult) return;
+    if (gameResult.playerWon) {
+      addToast({
+        type: "success",
+        title: "You Won!",
+        message: `Congratulations! You won ${gameResult.payout.toFixed(2)} SOL.`,
+        duration: 6000,
+      });
+    }
+  }, [gameResult, addToast]);
+
   const getProvider = useCallback(() => {
     if (!wallet.publicKey || !wallet.signTransaction || !wallet.signAllTransactions) {
       throw new Error("Wallet not connected");
@@ -81,12 +289,33 @@ export const ChestGame: FC = () => {
 
   const playGame = useCallback(async () => {
     if (!wallet.publicKey || selectedChest === null) {
-      setError("Please connect wallet and select a chest");
+      addToast({
+        type: "warning",
+        title: "Not Ready",
+        message: !wallet.publicKey
+          ? "Please connect your wallet first."
+          : "Please select a chest before confirming.",
+        suggestion: !wallet.publicKey
+          ? "Click the wallet button in the top-right corner."
+          : undefined,
+        duration: 5000,
+      });
+      return;
+    }
+
+    // Pre-flight balance check (bet + ~0.015 SOL for tx fees + rent)
+    if (solBalance !== null && solBalance < betAmount + 0.015) {
+      addToast({
+        type: "warning",
+        title: "Insufficient SOL",
+        message: `You need at least ${(betAmount + 0.015).toFixed(3)} SOL (bet + fees). You have ${solBalance.toFixed(3)} SOL.`,
+        suggestion: "Lower your bet or get devnet SOL at faucet.solana.com.",
+        duration: 8000,
+      });
       return;
     }
 
     setIsPlaying(true);
-    setError(null);
     setGameResult(null);
     setTxSignature(null);
 
@@ -523,17 +752,16 @@ export const ChestGame: FC = () => {
       if (err && typeof err === 'object' && 'logs' in err) {
         console.error("Logs:", (err as { logs: string[] }).logs);
       }
-      setError(err instanceof Error ? err.message : "Failed to play game");
+      addToast(classifyGameError(err));
     } finally {
       setIsPlaying(false);
     }
-  }, [wallet, selectedChest, numChests, betAmount, connection, getProvider]);
+  }, [wallet, selectedChest, numChests, betAmount, connection, getProvider, addToast, solBalance]);
 
   const resetGame = () => {
     setGameStep('hero');
     setSelectedChest(null);
     setGameResult(null);
-    setError(null);
     setTxSignature(null);
   };
 
@@ -1030,20 +1258,6 @@ export const ChestGame: FC = () => {
                     Your encrypted choice is being processed on-chain
                   </p>
                 </div>
-              </div>
-            )}
-
-            {/* Error */}
-            {error && !isPlaying && (
-              <div
-                className="mb-6 px-5 py-3 rounded-xl text-sm max-w-sm text-center"
-                style={{
-                  background: 'rgba(239,68,68,0.09)',
-                  border: '1px solid rgba(239,68,68,0.28)',
-                  color: '#fca5a5',
-                }}
-              >
-                {error}
               </div>
             )}
 
